@@ -21,6 +21,10 @@ SecureVoice v1 is a responsive web app/PWA backed by a small Node.js TypeScript 
 - There are no permanent user accounts, phone numbers, global username lookup, or server-side contact directory.
 - The rendezvous service will move encrypted signaling blobs only. It will not understand contacts, SDP, ICE, or call content.
 
+## Phase 3 status
+
+The current rendezvous implementation is an intentionally small in-memory HTTP transport. It supports opaque mailbox PUT, GET with long-poll fallback, acknowledgement, explicit deletion, duplicate suppression, and automatic TTL expiry. It is suitable for local integration and protocol work; Redis-compatible persistence, WebSocket delivery, and production rate limiting remain deployment work and are not implied by the current Phase 3 implementation.
+
 ## Explicit non-goals
 
 - No global username lookup.
