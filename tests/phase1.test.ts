@@ -10,9 +10,11 @@ import {
 } from '../packages/protocol/src/index';
 import {
   decrypt,
+  decryptEnvelope,
   deriveSharedSecret,
   deriveMessageKey,
   encrypt,
+  encryptEnvelope,
   generateAgreementKeyPair,
   generateSigningKeyPair,
   signEnvelope,
@@ -96,6 +98,22 @@ describe('Phase 1 Web Crypto baseline', () => {
     await expect(verifyEnvelope(encoded, resolveSenderKey, new ReplayGuard(), header.expiresAt)).rejects.toThrow('expired envelope');
   });
 
+  it('encrypts, signs, verifies, and decrypts one envelope payload', async () => {
+    const signingKeyPair = await generateSigningKeyPair();
+    const messageKey = await deriveMessageKey(new Uint8Array(32), new Uint8Array(16), new TextEncoder().encode('securevoice/envelope/v1'));
+    const plaintext = new TextEncoder().encode('complete envelope round trip');
+    const ciphertext = await encryptEnvelope(messageKey, plaintext, header);
+    const encoded = await signEnvelope(signingKeyPair.privateKey, { header, ciphertext });
+    const verified = await verifyEnvelope(
+      encoded,
+      async (senderKeyId) => senderKeyId === header.senderKeyId ? signingKeyPair.publicKey : undefined,
+      new ReplayGuard(),
+      header.issuedAt,
+    );
+
+    await expect(decryptEnvelope(messageKey, verified.ciphertext, verified.header)).resolves.toEqual(plaintext.buffer);
+  });
+
   it('rejects altered header, ciphertext, signature, and IV', async () => {
     const keyPair = await generateSigningKeyPair();
     const encoded = await signEnvelope(keyPair.privateKey, { header, ciphertext: envelope.ciphertext });
@@ -108,6 +126,7 @@ describe('Phase 1 Web Crypto baseline', () => {
     await expect(alter({ ...decoded, header: { ...decoded.header, type: 'ack' } })).rejects.toThrow('invalid envelope signature');
     await expect(alter({ ...decoded, ciphertext: 'YWx0ZXJlZA' })).rejects.toThrow('invalid envelope signature');
     await expect(alter({ ...decoded, signature: encodeBase64Url(alteredSignatureBytes) })).rejects.toThrow('invalid envelope signature');
+    expect(() => parseEnvelope({ ...decoded, signature: encodeBase64Url(new Uint8Array(65)) }, header.issuedAt)).toThrow('invalid signature');
 
     expect(keyPair.privateKey.extractable).toBe(false);
     await expect(globalThis.crypto.subtle.exportKey('jwk', keyPair.privateKey)).rejects.toThrow();

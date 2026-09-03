@@ -151,6 +151,11 @@ export function parseEnvelope(value: unknown, now = Date.now()): SignedEnvelope 
 	if (!isBase64Url(candidate.signature, 64)) {
 		throw new Error('invalid signature');
 	}
+	try {
+		if (decodeBase64Url(candidate.signature).byteLength !== 64) throw new Error('invalid signature size');
+	} catch {
+		throw new Error('invalid signature');
+	}
 
 	return { header, ciphertext: candidate.ciphertext, signature: candidate.signature };
 }

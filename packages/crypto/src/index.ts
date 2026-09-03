@@ -54,6 +54,24 @@ export async function signEnvelope(privateKey: CryptoKey, envelope: Pick<SignedE
 	return encodeEnvelope({ ...envelope, signature: encodeBase64Url(signature) });
 }
 
+export async function encryptEnvelope(key: CryptoKey, plaintext: CryptoInput, header: EnvelopeHeader): Promise<string> {
+	const payload = await encrypt(key, plaintext, header);
+	const framed = new Uint8Array(12 + payload.ciphertext.byteLength);
+	framed.set(payload.iv, 0);
+	framed.set(new Uint8Array(payload.ciphertext), 12);
+	return encodeBase64Url(framed);
+}
+
+export async function decryptEnvelope(key: CryptoKey, ciphertext: string, header: EnvelopeHeader): Promise<ArrayBuffer> {
+	const framed = decodeBase64Url(ciphertext);
+	if (framed.byteLength <= 12) throw new Error('invalid encrypted envelope payload');
+	return decrypt(
+		key,
+		{ iv: framed.slice(0, 12), ciphertext: framed.slice(12).buffer },
+		header,
+	);
+}
+
 export async function verifyEnvelope(
 	encodedEnvelope: string,
 	resolveSenderKey: (senderKeyId: string) => Promise<CryptoKey | undefined>,

@@ -19,7 +19,9 @@ type EnvelopeHeader = {
 };
 ```
 
-`messageId`, `callId`, key IDs, and `nonce` use unpadded base64url. Message IDs and call IDs contain at least 128 random bits. Nonces contain at least 96 random bits. An envelope lifetime is at most 15 minutes.
+`messageId`, `callId`, key IDs, nonce, ciphertext, and signature use unpadded canonical base64url. Message IDs and call IDs contain at least 128 random bits. Nonces contain at least 96 random bits. An envelope lifetime is at most 15 minutes. P-256 ECDSA signatures are exactly 64 raw bytes.
+
+Encrypted envelope ciphertext is encoded as one base64url value containing `12-byte random IV || AES-GCM ciphertext and authentication tag`. The canonical header is used as AES-GCM additional authenticated data. The same ciphertext string is then included in the signed envelope.
 
 ## Canonical signing
 
@@ -57,4 +59,4 @@ Parsing and validation must never request microphone permission, create a peer c
 
 ## Test vectors and rejection cases
 
-The deterministic header vector and canonical bytes are asserted in `tests/phase1.test.ts`. Tests cover unknown versions, expiry, empty and oversized ciphertext, replayed IDs, altered signed data, private-key export failure, and AES-GCM authentication failure.
+The deterministic header vector and canonical bytes are asserted in `tests/phase1.test.ts`. Tests cover unknown versions, expiry, future timestamps, empty and oversized ciphertext, non-canonical ciphertext, 65-byte signatures, replayed IDs, altered signed data, private-key export failure, and complete encrypt/sign/verify/decrypt round trips.
