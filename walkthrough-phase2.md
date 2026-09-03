@@ -10,7 +10,8 @@
 - Added `fake-indexeddb` tests proving identity persistence and a two-identity invitation/response flow.
 - Added an explicit key-replacement flow: the user selects an existing contact, the old key is blocked, and the replacement is saved separately as unverified until the user enters a matching fresh SAS. Automatic recovery from lost keys is not implemented.
 - Replaced the text/file response round-trip with scan-to-scan pairing: Alice displays an invitation QR, Bob scans it and immediately displays a response QR, and Alice scans the response QR.
-- Replaced the text/file response round-trip with scan-to-scan pairing: Alice displays an invitation QR, Bob scans it and immediately displays a response QR, and Alice scans the response QR.
+- Added QR pairing UI-state tests for invitation-to-response transition, malformed and duplicate scans, cancellation, mode mismatches, and response acceptance.
+- Verified `qr-scanner` cleanup behavior against its installed documentation: unmount calls `destroy()`, which stops the camera stream, worker, and event listeners.
 
 ## Verification
 
@@ -21,7 +22,7 @@ npm test
 npm run build
 ```
 
-Observed: all four commands pass; 15 tests pass across 3 test files. The Phase 2 tests verify non-extractable keys survive IndexedDB reload, two independent identities produce a signed response and six-word SAS, an explicitly selected old key is blocked before a replacement is saved unverified, SAS matching rejects incorrect input, unsolicited/mismatched/replayed response nonces are rejected, and oversized/future-dated artifacts are rejected before signature work.
+Observed: all four commands pass; 21 tests pass across 4 test files. The Phase 2 tests verify non-extractable keys survive IndexedDB reload, two independent identities produce a signed response and six-word SAS, an explicitly selected old key is blocked before a replacement is saved unverified, SAS matching rejects incorrect input, unsolicited/mismatched/replayed response nonces are rejected, oversized/future-dated artifacts are rejected before signature work, and the QR pairing state machine covers scan transitions, malformed/duplicate/mismatched inputs, and cancellation.
 
 The integrated browser smoke check was attempted, but this environment does not have the Playwright Chromium executable installed. The Vite production build completed successfully; install the project browser binary before performing an interactive browser acceptance run.
 
@@ -37,6 +38,7 @@ The integrated browser smoke check was attempted, but this environment does not 
 - [x] Automatic recovery from a lost identity key is explicitly out of scope pending a separate recovery/key-rotation design.
 - [x] Every created invitation nonce is persisted, must match an exact pending local invitation, and is consumed atomically with contact storage.
 - [x] Pairing artifacts have a 16 KiB input cap, strict field checks, exact 64-byte signatures, and a ten-minute future expiry bound.
+- [x] QR scanner cleanup calls `destroy()` on unmount, and camera scanning is mounted only after an explicit scan-mode button action.
 - [ ] Cross-browser QR scanning and full two-device UI walkthrough require a browser runtime with camera/test support.
 
 ## Important changed snippets
@@ -70,6 +72,15 @@ const scanner = new ScannerConstructor(video, (result) => {
 ```
 
 No protocol security property changed: the scanner only supplies the encoded input; signatures, expiry, nonce matching/consumption, SAS confirmation, and contact states remain enforced by `identity.ts`.
+
+The QR state machine rejects a response in invitation mode and an invitation in response mode before identity persistence is reached:
+
+```ts
+expect(acceptScannedArtifact(beginScan('invitation'), response)).toMatchObject({ phase: 'error' });
+expect(acceptScannedArtifact(beginScan('response'), invitation)).toMatchObject({ phase: 'error' });
+```
+
+Camera permission is requested by `scanner.start()` inside `Scan`'s effect. `Scan` is rendered only for the `scan` view, which is entered by the explicit `Scan invitation QR` or `Scan response QR` button; page-load identity hydration never constructs a scanner.
 
 ## Important implementation snippets
 
