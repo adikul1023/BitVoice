@@ -28,7 +28,7 @@ Observed during Phase 0 verification:
 
 - `npm run typecheck`: passed.
 - `npm run lint`: passed with zero ESLint findings.
-- `npm test`: passed, 1 test file and 1 test.
+- `npm test`: passed, 1 test file and 1 test. The test checks the six workspace directories and parses each actual `package.json` to verify its expected package name.
 - `npm run build`: passed for both Vite and the rendezvous service.
 - `GET http://localhost:8787/healthz`: returned `{"service":"rendezvous-service","status":"ok","phase":0}`.
 - `npm audit --omit=dev`: reported 0 production vulnerabilities. The earlier critical advisory was in development tooling and does not affect shipped runtime code.
@@ -52,3 +52,4 @@ Open `http://localhost:5173` for the web shell. Request `http://localhost:8787/h
 - [x] WebRTC, WireGuard, signaling, identity, and cryptography are not implemented in Phase 0.
 - [x] No runtime server state, WebRTC APIs, identity keys, crypto APIs, or TURN configuration exists in Phase 0.
 - [x] Production-only dependency audit is clean; the development-only critical advisory is identified above for planned dependency maintenance.
+- [x] The repository-shape test inspects actual workspace directories and manifests rather than asserting the length of a hard-coded array.
