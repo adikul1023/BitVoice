@@ -5,6 +5,7 @@ import {
   createIdentity,
   createInvitation,
   createResponse,
+  listContacts,
   loadIdentity,
   parseInvitation,
 } from '../apps/web/src/identity';
@@ -28,6 +29,23 @@ describe('Phase 2 local identity and pairing', () => {
 
     expect(accepted.contact.contactId).toBe(responder.keyId);
     expect(accepted.contact.verification).toBe('unverified');
+    expect(accepted.contact.pendingSas).toBe(accepted.sas);
     expect(accepted.sas.split(' ')).toHaveLength(6);
+  });
+
+  it('blocks the selected old key before saving a replacement as unverified', async () => {
+    const inviter = await createIdentity();
+    const firstPeer = await createIdentity();
+    const replacementPeer = await createIdentity();
+    const firstInvitation = await parseInvitation(await createInvitation(inviter));
+    const firstContact = await acceptResponse(inviter, await createResponse(firstPeer, firstInvitation), 'Peer');
+    const replacementInvitation = await parseInvitation(await createInvitation(inviter));
+    const replacement = await acceptResponse(inviter, await createResponse(replacementPeer, replacementInvitation), 'Peer', firstContact.contact.contactId);
+    const saved = await listContacts();
+
+    expect(replacement.replacedContact?.keyChangeState).toBe('normal');
+    expect(saved.find((contact) => contact.contactId === firstPeer.keyId)?.keyChangeState).toBe('blocked');
+    expect(saved.find((contact) => contact.contactId === replacementPeer.keyId)?.verification).toBe('unverified');
+    expect(saved.find((contact) => contact.contactId === replacementPeer.keyId)?.pendingSas).toBe(replacement.sas);
   });
 });

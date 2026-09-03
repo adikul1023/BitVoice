@@ -34,6 +34,7 @@ export type Contact = {
   verification: 'unverified' | 'verified';
   verifiedAt?: number;
   keyChangeState: 'normal' | 'blocked';
+  pendingSas?: string;
   createdAt: number;
   lastSeenAt?: number;
 };
@@ -178,7 +179,7 @@ export async function createResponse(identity: LocalIdentity, invitation: Pairin
   return JSON.stringify({ ...response, signature: encodeBase64Url(signature) });
 }
 
-export async function acceptResponse(identity: LocalIdentity, responseEncoded: string, displayName: string): Promise<{ contact: Contact; sas: string }> {
+export async function acceptResponse(identity: LocalIdentity, responseEncoded: string, displayName: string, replaceContactId?: string): Promise<{ contact: Contact; sas: string; replacedContact?: Contact }> {
   const response = JSON.parse(responseEncoded) as PairingResponse;
   if (response.kind !== 'securevoice-pairing-response' || response.version !== 1 || response.inviterKeyId !== identity.keyId || response.expiresAt <= Date.now()) throw new Error('expired or invalid pairing response');
   const expectedKeyId = await publicKeyId(response.signingPublicJwk);
@@ -186,9 +187,13 @@ export async function acceptResponse(identity: LocalIdentity, responseEncoded: s
   const publicKey = await importSigningPublicKey(response.signingPublicJwk);
   const { signature, ...unsigned } = response;
   if (!await verify(publicKey, signatureBytes(signature), new TextEncoder().encode(canonicalJson(unsigned)))) throw new Error('invalid response signature');
-  const contact: Contact = { contactId: response.keyId, displayName, signingPublicJwk: response.signingPublicJwk, agreementPublicJwk: response.agreementPublicJwk, verification: 'unverified', keyChangeState: 'normal', createdAt: Date.now() };
+  const replacedContact = replaceContactId ? (await listContacts()).find((contact) => contact.contactId === replaceContactId) : undefined;
+  if (replaceContactId && !replacedContact) throw new Error('contact selected for replacement was not found');
+  if (replacedContact) await saveContact({ ...replacedContact, keyChangeState: 'blocked' });
+  const sas = await pairingPhrase({ nonce: response.invitationNonce, keyId: response.inviterKeyId }, response);
+  const contact: Contact = { contactId: response.keyId, displayName, signingPublicJwk: response.signingPublicJwk, agreementPublicJwk: response.agreementPublicJwk, verification: 'unverified', keyChangeState: 'normal', pendingSas: sas, createdAt: Date.now() };
   await saveContact(contact);
-  return { contact, sas: await pairingPhrase({ nonce: response.invitationNonce, keyId: response.inviterKeyId }, response) };
+  return { contact, replacedContact, sas };
 }
 
 function signatureBytes(signature: string): Uint8Array {
