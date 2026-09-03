@@ -18,6 +18,23 @@ afterEach(async () => {
 });
 
 describe('Phase 3 rendezvous service', () => {
+  it('completes a simulated Alice-to-Bob mailbox exchange', async () => {
+    const baseUrl = await startServer();
+    const mailbox = 'alice-bob-capability';
+    const offer = { messageId: 'alice_offer_message', ciphertext: 'encrypted-offer-blob', expiresAt: Date.now() + 60_000 };
+
+    const put = await fetch(`${baseUrl}/v1/mailboxes/${mailbox}/messages`, { method: 'PUT', body: JSON.stringify(offer) });
+    expect(put.status).toBe(202);
+
+    const bobReceived = await fetch(`${baseUrl}/v1/mailboxes/${mailbox}/messages`).then((response) => response.json());
+    expect(bobReceived.messages[0]).toMatchObject(offer);
+
+    const ack = await fetch(`${baseUrl}/v1/mailboxes/${mailbox}/messages/${offer.messageId}/ack`, { method: 'POST' });
+    expect(ack.status).toBe(202);
+    const afterAck = await fetch(`${baseUrl}/v1/mailboxes/${mailbox}/messages`).then((response) => response.json());
+    expect(afterAck.messages).toEqual([]);
+  });
+
   it('moves opaque ciphertext and removes it after acknowledgement', async () => {
     const baseUrl = await startServer();
     const message = { messageId: 'message_opaque_123', ciphertext: 'v=0\r\no=not-server-readable', expiresAt: Date.now() + 60_000 };

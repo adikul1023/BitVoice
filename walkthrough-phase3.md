@@ -18,7 +18,7 @@ npm test
 npm run build
 ```
 
-Observed: the focused Phase 3 integration suite passes 6 tests. The complete repository gates pass with 27 tests across 5 files, including transport, TTL, acknowledgement, capability-scoped deletion, duplicate, isolation, opaque paths, cancellable long polling, malformed-request, and health checks.
+Observed: the focused Phase 3 integration suite passes 7 tests. The complete repository gates pass with 28 tests across 5 files, including a simulated Alice PUT -> Bob GET -> ACK -> empty GET exchange, transport, TTL, acknowledgement, capability-scoped deletion, duplicate, isolation, opaque paths, cancellable long polling, malformed-request, and health checks.
 
 ## Important implementation snippets
 
@@ -57,6 +57,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 ## Acceptance checklist
 
 - [x] Opaque mailbox message transport works over HTTP.
+- [x] Backend integration simulates Alice PUT offer, Bob GET offer, ACK, and empty follow-up GET.
 - [x] Messages disappear after acknowledgement or expiry.
 - [x] Duplicate delivery is suppressed and mailboxes are isolated.
 - [x] ACK and DELETE are scoped by the opaque mailbox capability.
