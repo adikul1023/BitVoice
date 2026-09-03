@@ -24,7 +24,29 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
 }
 
 function route(pathname: string): string[] {
-  return pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+  return pathname.split('/').filter(Boolean);
+}
+
+function waitForMessages(request: IncomingMessage, mailboxId: string, store: RendezvousStore, now: () => number, waitSeconds: number): Promise<ReturnType<RendezvousStore['get']>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const interval = setInterval(() => {
+      const messages = store.get(mailboxId, now());
+      if (messages.length || now() >= deadline) finish(messages);
+    }, 50);
+    const deadline = now() + waitSeconds * 1000;
+    const finish = (messages: ReturnType<RendezvousStore['get']>) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interval);
+      request.removeListener('close', cancel);
+      resolve(messages);
+    };
+    const cancel = () => finish([]);
+    request.once('close', cancel);
+    const initial = store.get(mailboxId, now());
+    if (initial.length || waitSeconds <= 0) finish(initial);
+  });
 }
 
 export function createRendezvousServer(options: ServerOptions = {}): Server {
@@ -52,24 +74,21 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
         }
         if (request.method === 'GET') {
           const waitSeconds = Math.min(Number(requestUrl.searchParams.get('wait') ?? 0) || 0, 25);
-          const deadline = now() + waitSeconds * 1000;
-          let messages = store.get(mailboxId, now());
-          while (!messages.length && waitSeconds > 0 && now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            messages = store.get(mailboxId, now());
-          }
+          const messages = waitSeconds > 0
+            ? await waitForMessages(request, mailboxId, store, now, waitSeconds)
+            : store.get(mailboxId, now());
           writeJson(response, 200, { messages });
           return;
         }
       }
 
-      if (parts.length === 4 && parts[0] === 'v1' && parts[1] === 'messages' && parts[3] === 'ack' && request.method === 'POST') {
-        store.ack(parts[2], now());
+      if (parts.length === 6 && parts[0] === 'v1' && parts[1] === 'mailboxes' && parts[3] === 'messages' && parts[5] === 'ack' && request.method === 'POST') {
+        store.ack(parts[2], parts[4], now());
         writeJson(response, 202, { accepted: true });
         return;
       }
-      if (parts.length === 3 && parts[0] === 'v1' && parts[1] === 'messages' && request.method === 'DELETE') {
-        store.delete(parts[2], now());
+      if (parts.length === 5 && parts[0] === 'v1' && parts[1] === 'mailboxes' && parts[3] === 'messages' && request.method === 'DELETE') {
+        store.delete(parts[2], parts[4], now());
         writeJson(response, 202, { accepted: true });
         return;
       }

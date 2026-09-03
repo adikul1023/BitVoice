@@ -11,9 +11,12 @@ const maxTtlMs = 15 * 60 * 1000;
 export class RendezvousStore {
   private readonly messages = new Map<string, RendezvousMessage[]>();
 
+  get mailboxCount(): number {
+    return this.messages.size;
+  }
+
   put(mailboxId: string, message: Omit<RendezvousMessage, 'storedAt'>, now = Date.now()): void {
     this.purge(now);
-    if (!mailboxId || mailboxId.length > 256) throw new Error('invalid mailbox');
     if (!message.messageId || message.messageId.length > 256 || !/^[A-Za-z0-9_-]+$/.test(message.messageId)) throw new Error('invalid message');
     if (typeof message.ciphertext !== 'string' || new TextEncoder().encode(message.ciphertext).byteLength === 0 || new TextEncoder().encode(message.ciphertext).byteLength > maxPayloadBytes) throw new Error('invalid payload');
     if (!Number.isSafeInteger(message.expiresAt) || message.expiresAt <= now || message.expiresAt > now + maxTtlMs) throw new Error('invalid expiry');
@@ -27,21 +30,21 @@ export class RendezvousStore {
     return [...(this.messages.get(mailboxId) ?? [])];
   }
 
-  ack(messageId: string, now = Date.now()): boolean {
+  ack(mailboxId: string, messageId: string, now = Date.now()): boolean {
     this.purge(now);
-    for (const [mailboxId, mailbox] of this.messages) {
-      const remaining = mailbox.filter((message) => message.messageId !== messageId);
-      if (remaining.length !== mailbox.length) {
-        if (remaining.length) this.messages.set(mailboxId, remaining);
-        else this.messages.delete(mailboxId);
-        return true;
-      }
+    const mailbox = this.messages.get(mailboxId);
+    if (!mailbox) return false;
+    const remaining = mailbox.filter((message) => message.messageId !== messageId);
+    if (remaining.length !== mailbox.length) {
+      if (remaining.length) this.messages.set(mailboxId, remaining);
+      else this.messages.delete(mailboxId);
+      return true;
     }
     return false;
   }
 
-  delete(messageId: string, now = Date.now()): boolean {
-    return this.ack(messageId, now);
+  delete(mailboxId: string, messageId: string, now = Date.now()): boolean {
+    return this.ack(mailboxId, messageId, now);
   }
 
   purge(now = Date.now()): void {

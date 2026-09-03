@@ -23,7 +23,7 @@ SecureVoice v1 is a responsive web app/PWA backed by a small Node.js TypeScript 
 
 ## Phase 3 status
 
-The current rendezvous implementation is an intentionally small in-memory HTTP transport. It supports opaque mailbox PUT, GET with long-poll fallback, acknowledgement, explicit deletion, duplicate suppression, and automatic TTL expiry. It is suitable for local integration and protocol work; Redis-compatible persistence, WebSocket delivery, and production rate limiting remain deployment work and are not implied by the current Phase 3 implementation.
+The current rendezvous implementation is an intentionally small in-memory HTTP transport. It supports opaque mailbox PUT, GET with cancellable long-poll fallback, mailbox-capability-scoped acknowledgement and deletion, duplicate suppression, and automatic TTL expiry. It is suitable for local integration and protocol work; Redis-compatible persistence, WebSocket delivery, and production rate limiting remain deployment work and are not implied by the current Phase 3 implementation.
 
 ## Explicit non-goals
 
