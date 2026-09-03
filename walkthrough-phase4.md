@@ -84,5 +84,5 @@ export function transitionCall(state: CallState, event: CallEvent): CallState {
 - [x] One ICE restart is available after direct connection failure setup.
 - [x] Ending stops local media and closes the peer connection.
 - [ ] Real browser-to-browser direct audio and CALL_FINISH transcript verification remain the next integration step.
-- [ ] Authenticated encrypt/sign/decrypt rendezvous wiring for SDP and the cross-browser matrix remain integration work.
-- [ ] TURN and rendezvous integration remain later phases/features.
+- [ ] Authenticated encrypt/sign/decrypt rendezvous wiring for SDP, browser-to-browser audio, and the cross-browser matrix remain Phase 4 integration work.
+- [ ] TURN remains deferred until direct calling and its end-to-end integration are reliable.
