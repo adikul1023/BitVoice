@@ -5,6 +5,6 @@
   "dependencies": {
     "@securevoice/protocol": "*"
   },
-  "exports": "./dist/index.js",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "scripts": { "typecheck": "tsc --build" }
 }
