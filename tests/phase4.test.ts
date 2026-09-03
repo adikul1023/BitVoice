@@ -13,7 +13,7 @@ class FakePeerConnection {
   onicecandidate: ((event: { candidate?: { toJSON: () => RTCIceCandidateInit } }) => void) | null = null;
   onconnectionstatechange: (() => void) | null = null;
   ontrack: ((event: { streams: MediaStream[] }) => void) | null = null;
-  readonly dataChannel = { onopen: null };
+  readonly dataChannel = { readyState: 'open', onopen: null as (() => void) | null, onmessage: null as ((event: { data: unknown }) => void) | null, sent: [] as string[], send: (message: string) => { this.dataChannel.sent.push(message); } };
   readonly addedCandidates: RTCIceCandidateInit[] = [];
   readonly localDescriptions: RTCSessionDescriptionInit[] = [];
   remoteDescription?: RTCSessionDescriptionInit;
@@ -51,7 +51,8 @@ describe('Phase 4 call state machine', () => {
     expect(transitionCall('idle', 'prepare-outgoing')).toBe('outgoing-preparing');
     expect(transitionCall('outgoing-preparing', 'offer-sent')).toBe('outgoing-rendezvous');
     expect(transitionCall('outgoing-rendezvous', 'offer-accepted')).toBe('outgoing-connecting');
-    expect(transitionCall('outgoing-connecting', 'connection-established')).toBe('connected');
+    expect(transitionCall('outgoing-connecting', 'connection-established')).toBe('ice-connected');
+    expect(transitionCall('ice-connected', 'finish-confirmed')).toBe('connected');
     expect(transitionCall('idle', 'incoming-received')).toBe('incoming-offer');
     expect(transitionCall('incoming-offer', 'review-incoming')).toBe('incoming-review');
     expect(transitionCall('incoming-review', 'accept-incoming')).toBe('incoming-accepted');
@@ -83,9 +84,35 @@ describe('Phase 4 call state machine', () => {
     const incoming = createDirectCall({ onSignal: async (signal) => { signals.push(signal); } });
     await incoming.receiveOffer({ type: 'offer', sdp: 'offer' });
     expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(fakePeers).toHaveLength(1);
     expect(incoming.state).toBe('incoming-review');
+    await expect(incoming.receiveIceCandidate({ candidate: 'early-candidate' })).rejects.toThrow('not expected');
+    expect(fakePeers).toHaveLength(1);
     await incoming.acceptIncoming();
     expect(getUserMedia).toHaveBeenCalledTimes(2);
     expect(incoming.state).toBe('incoming-connecting');
+    expect(fakePeers[1].remoteDescription).toEqual({ type: 'offer', sdp: 'offer' });
+  });
+
+  it('does not report verified until the signed finish transcript is confirmed', async () => {
+    installBrowserFakes();
+    const call = createDirectCall({
+      onSignal: async () => undefined,
+      createFinishMessage: async () => 'signed-finish',
+      verifyFinishMessage: async (message) => message === 'signed-finish',
+    });
+    await call.startOutgoing();
+    await call.receiveAnswer({ type: 'answer', sdp: 'answer' });
+    fakePeers[0].connectionState = 'connected';
+    fakePeers[0].onconnectionstatechange?.();
+    expect(call.state).toBe('ice-connected');
+    fakePeers[0].dataChannel.onopen?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fakePeers[0].dataChannel.sent).toEqual(['signed-finish']);
+    fakePeers[0].dataChannel.onmessage?.({ data: 'not-signed' });
+    expect(call.state).toBe('ice-connected');
+    fakePeers[0].dataChannel.onmessage?.({ data: 'signed-finish' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(call.state).toBe('connected');
   });
 });

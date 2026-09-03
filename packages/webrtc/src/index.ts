@@ -4,6 +4,7 @@ export type CallState =
 	| 'outgoing-preparing'
 	| 'outgoing-rendezvous'
 	| 'outgoing-connecting'
+	| 'ice-connected'
 	| 'incoming-offer'
 	| 'incoming-review'
 	| 'incoming-accepted'
@@ -20,6 +21,7 @@ export type CallEvent =
 	| 'review-incoming'
 	| 'accept-incoming'
 	| 'connection-established'
+	| 'finish-confirmed'
 	| 'connection-failed'
 	| 'end'
 	| 'cleanup';
@@ -28,11 +30,12 @@ const transitions: Record<CallState, Partial<Record<CallEvent, CallState>>> = {
 	idle: { 'prepare-outgoing': 'outgoing-preparing', 'incoming-received': 'incoming-offer' },
 	'outgoing-preparing': { 'offer-sent': 'outgoing-rendezvous', end: 'ending' },
 	'outgoing-rendezvous': { 'offer-accepted': 'outgoing-connecting', end: 'ending' },
-	'outgoing-connecting': { 'connection-established': 'connected', 'connection-failed': 'ending', end: 'ending' },
+	'outgoing-connecting': { 'connection-established': 'ice-connected', 'connection-failed': 'ending', end: 'ending' },
 	'incoming-offer': { 'review-incoming': 'incoming-review', end: 'ending' },
 	'incoming-review': { 'accept-incoming': 'incoming-accepted', end: 'ending' },
 	'incoming-accepted': { 'offer-sent': 'incoming-connecting', end: 'ending' },
-	'incoming-connecting': { 'connection-established': 'connected', 'connection-failed': 'ending', end: 'ending' },
+	'incoming-connecting': { 'connection-established': 'ice-connected', 'connection-failed': 'ending', end: 'ending' },
+	'ice-connected': { 'finish-confirmed': 'connected', end: 'ending' },
 	connected: { end: 'ending' },
 	ending: { cleanup: 'ended' },
 	ended: {},
@@ -49,6 +52,8 @@ export type DirectCallConfig = {
 	onSignal: (signal: RTCSessionDescriptionInit | RTCIceCandidateInit) => Promise<void>;
 	onStateChange?: (state: CallState) => void;
 	onRemoteStream?: (stream: MediaStream) => void;
+	createFinishMessage?: () => Promise<string>;
+	verifyFinishMessage?: (message: string) => Promise<boolean>;
 };
 
 export type DirectCall = {
@@ -68,6 +73,8 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 	let connection: RTCPeerConnection | undefined;
 	let localStream: MediaStream | undefined;
 	let pendingOffer: RTCSessionDescriptionInit | undefined;
+	let controlChannel: RTCDataChannel | undefined;
+	let finishSent = false;
 	let iceRestartUsed = false;
 
 	const setState = (next: CallState) => { state = next; config.onStateChange?.(next); };
@@ -83,13 +90,29 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 		connection.onicecandidate = (event) => { if (event.candidate) void config.onSignal(event.candidate.toJSON()); };
 		connection.onconnectionstatechange = () => {
 			if (connection?.connectionState === 'connected') {
-				if (state === 'outgoing-connecting' || state === 'incoming-connecting') move('connection-established');
+				if (state === 'outgoing-connecting' || state === 'incoming-connecting') {
+					move('connection-established');
+					void sendFinish();
+				}
 			} else if (connection && ['failed', 'disconnected'].includes(connection.connectionState) && state === 'outgoing-connecting') {
 				move('connection-failed');
 			}
 		};
+		connection.ondatachannel = (event) => { controlChannel = event.channel; configureControlChannel(controlChannel); };
 		connection.ontrack = (event) => { if (event.streams[0]) config.onRemoteStream?.(event.streams[0]); };
 		return connection;
+	};
+	const sendFinish = async () => {
+		if (finishSent || !controlChannel || controlChannel.readyState !== 'open' || !config.createFinishMessage) return;
+		finishSent = true;
+		controlChannel.send(await config.createFinishMessage());
+	};
+	const configureControlChannel = (channel: RTCDataChannel) => {
+		channel.onopen = () => { void sendFinish(); };
+		channel.onmessage = (event) => {
+			if (state !== 'ice-connected' || typeof event.data !== 'string' || !config.verifyFinishMessage) return;
+			void config.verifyFinishMessage(event.data).then((valid) => { if (valid) move('finish-confirmed'); });
+		};
 	};
 	const requestMicrophone = async () => {
 		localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -103,8 +126,8 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			move('prepare-outgoing');
 			await requestMicrophone();
 			const peer = ensureConnection();
-			const dataChannel = peer.createDataChannel('securevoice-control', { ordered: true });
-			dataChannel.onopen = () => undefined;
+			controlChannel = peer.createDataChannel('securevoice-control', { ordered: true });
+			configureControlChannel(controlChannel);
 			const offer = await peer.createOffer();
 			await peer.setLocalDescription(offer);
 			move('offer-sent');
@@ -113,12 +136,12 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 		async receiveOffer(offer) {
 			move('incoming-received');
 			pendingOffer = offer;
-			await ensureConnection().setRemoteDescription(offer);
 			move('review-incoming');
 		},
 		async acceptIncoming() {
 			if (!pendingOffer) throw new Error('no incoming offer to accept');
 			move('accept-incoming');
+			await ensureConnection().setRemoteDescription(pendingOffer);
 			await requestMicrophone();
 			const answer = await ensureConnection().createAnswer();
 			await ensureConnection().setLocalDescription(answer);
@@ -130,6 +153,9 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			if (state !== 'outgoing-connecting') move('offer-accepted');
 		},
 		async receiveIceCandidate(candidate) {
+			if (state !== 'outgoing-connecting' && state !== 'incoming-connecting' && state !== 'ice-connected') {
+				throw new Error('ICE candidate not expected in current call state');
+			}
 			await ensureConnection().addIceCandidate(candidate);
 		},
 		async restartIce() {
@@ -146,6 +172,8 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			connection = undefined;
 			localStream = undefined;
 			pendingOffer = undefined;
+			controlChannel = undefined;
+			finishSent = false;
 			if (state === 'ending') move('cleanup');
 		},
 	};
