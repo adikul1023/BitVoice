@@ -2,6 +2,9 @@
   "name": "@securevoice/crypto",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@securevoice/protocol": "*"
+  },
   "exports": "./dist/index.js",
   "scripts": { "typecheck": "tsc --build" }
 }

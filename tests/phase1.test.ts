@@ -2,17 +2,22 @@ import { describe, expect, it } from 'vitest';
 import {
   ReplayGuard,
   canonicalizeHeader,
+  decodeBase64Url,
+  encodeBase64Url,
   parseEnvelope,
   signingBytes,
   type EnvelopeHeader,
 } from '../packages/protocol/src/index';
 import {
   decrypt,
+  deriveSharedSecret,
   deriveMessageKey,
   encrypt,
+  generateAgreementKeyPair,
   generateSigningKeyPair,
-  sign,
+  signEnvelope,
   verify,
+  verifyEnvelope,
 } from '../packages/crypto/src/index';
 
 const header: EnvelopeHeader = {
@@ -50,26 +55,70 @@ describe('Phase 1 protocol contract', () => {
     guard.accept(header.messageId, header.expiresAt, header.issuedAt);
     expect(() => guard.accept(header.messageId, header.expiresAt, header.issuedAt)).toThrow('replayed message');
   });
+
+  it('rejects future-dated envelopes and non-canonical base64url', () => {
+    expect(() => parseEnvelope({ ...envelope, header: { ...header, issuedAt: 1_700_001_000_000, expiresAt: 1_700_001_600_000 } }, header.issuedAt)).toThrow('future-dated envelope');
+    expect(() => decodeBase64Url('AA==')).toThrow('invalid base64url');
+    expect(() => decodeBase64Url('AB')).toThrow('invalid base64url');
+  });
 });
 
 describe('Phase 1 Web Crypto baseline', () => {
-  it('signs and encrypts without exporting private material', async () => {
+  it('derives the same ECDH secret on both sides', async () => {
+    const first = await generateAgreementKeyPair();
+    const second = await generateAgreementKeyPair();
+    const wrongPeer = await generateAgreementKeyPair();
+    const firstSecret = await deriveSharedSecret(first.privateKey, second.publicKey);
+    const secondSecret = await deriveSharedSecret(second.privateKey, first.publicKey);
+    const wrongSecret = await deriveSharedSecret(first.privateKey, wrongPeer.publicKey);
+
+    expect(new Uint8Array(firstSecret)).toEqual(new Uint8Array(secondSecret));
+    expect(new Uint8Array(firstSecret)).not.toEqual(new Uint8Array(wrongSecret));
+  });
+
+  it('verifies an encoded envelope before consuming replay state', async () => {
     const keyPair = await generateSigningKeyPair();
-    const data = signingBytes({ header, ciphertext: envelope.ciphertext });
-    const signature = await sign(keyPair.privateKey, data);
+    const encoded = await signEnvelope(keyPair.privateKey, { header, ciphertext: envelope.ciphertext });
+    const replayGuard = new ReplayGuard();
+    const decoded = JSON.parse(encoded) as typeof envelope;
+
+    expect(await verifyEnvelope(encoded, keyPair.publicKey, replayGuard, header.issuedAt)).toEqual(decoded);
+    await expect(verifyEnvelope(encoded, keyPair.publicKey, replayGuard, header.issuedAt)).rejects.toThrow('replayed message');
+
+    const alteredSignatureBytes = decodeBase64Url(decoded.signature);
+    alteredSignatureBytes[0] ^= 1;
+    const alteredSignature = JSON.stringify({ ...decoded, signature: encodeBase64Url(alteredSignatureBytes) });
+    const invalidPacketGuard = new ReplayGuard();
+    await expect(verifyEnvelope(alteredSignature, keyPair.publicKey, invalidPacketGuard, header.issuedAt)).rejects.toThrow('invalid envelope signature');
+    await expect(verifyEnvelope(encoded, keyPair.publicKey, invalidPacketGuard, header.issuedAt)).resolves.toEqual(decoded);
+    await expect(verifyEnvelope(encoded, keyPair.publicKey, new ReplayGuard(), header.expiresAt)).rejects.toThrow('expired envelope');
+  });
+
+  it('rejects altered header, ciphertext, signature, and IV', async () => {
+    const keyPair = await generateSigningKeyPair();
+    const encoded = await signEnvelope(keyPair.privateKey, { header, ciphertext: envelope.ciphertext });
+    const decoded = JSON.parse(encoded) as typeof envelope;
+    const alter = (value: typeof envelope) => verifyEnvelope(JSON.stringify(value), keyPair.publicKey, new ReplayGuard(), header.issuedAt);
+    const alteredSignatureBytes = decodeBase64Url(decoded.signature);
+    alteredSignatureBytes[0] ^= 1;
+
+    await expect(alter({ ...decoded, header: { ...decoded.header, type: 'ack' } })).rejects.toThrow('invalid envelope signature');
+    await expect(alter({ ...decoded, ciphertext: 'YWx0ZXJlZA' })).rejects.toThrow('invalid envelope signature');
+    await expect(alter({ ...decoded, signature: encodeBase64Url(alteredSignatureBytes) })).rejects.toThrow('invalid envelope signature');
 
     expect(keyPair.privateKey.extractable).toBe(false);
     await expect(globalThis.crypto.subtle.exportKey('jwk', keyPair.privateKey)).rejects.toThrow();
-    await expect(verify(keyPair.publicKey, signature, data)).resolves.toBe(true);
-    await expect(verify(keyPair.publicKey, signature, new TextEncoder().encode('altered'))).resolves.toBe(false);
+    await expect(verify(keyPair.publicKey, new Uint8Array(64), signingBytes({ header, ciphertext: envelope.ciphertext }))).resolves.toBe(false);
 
     const messageKey = await deriveMessageKey(new Uint8Array(32), new Uint8Array(16), new TextEncoder().encode('securevoice/test/v1'));
-    const iv = new Uint8Array(12);
     const plaintext = new TextEncoder().encode('deterministic test payload');
-    const ciphertext = await encrypt(messageKey, plaintext, iv);
-    const decrypted = await decrypt(messageKey, ciphertext, iv);
+    const aad = new TextEncoder().encode('securevoice/aad/v1');
+    const ciphertext = await encrypt(messageKey, plaintext, aad);
+    const decrypted = await decrypt(messageKey, ciphertext, aad);
 
     expect(new TextDecoder().decode(decrypted)).toBe('deterministic test payload');
-    await expect(decrypt(messageKey, ciphertext, new Uint8Array(12).fill(1))).rejects.toThrow();
+    await expect(decrypt(messageKey, { ...ciphertext, iv: new Uint8Array(12).fill(1) }, aad)).rejects.toThrow();
+    await expect(decrypt(messageKey, ciphertext, new TextEncoder().encode('altered-aad'))).rejects.toThrow();
+    await expect(encrypt(messageKey, plaintext, undefined as never)).rejects.toThrow('additional data is required');
   });
 });

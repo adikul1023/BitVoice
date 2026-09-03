@@ -36,16 +36,35 @@ const messageTypes = new Set<MessageType>([
 ]);
 
 const maxEnvelopeLifetimeMs = 15 * 60 * 1000;
+const maxFutureSkewMs = 30 * 1000;
 
-function isBase64Url(value: unknown, minimumBytes: number): value is string {
+export function encodeBase64Url(bytes: ArrayBuffer | ArrayBufferView): string {
+	const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	let binary = '';
+	for (const byte of view) binary += String.fromCharCode(byte);
+	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function decodeBase64Url(value: unknown, minimumBytes = 0): Uint8Array {
 	if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) {
-		return false;
+		throw new Error('invalid base64url');
 	}
-
+	if (value.length % 4 === 1) throw new Error('invalid base64url length');
 	const padding = (4 - (value.length % 4)) % 4;
 	try {
 		const decoded = atob(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(padding));
-		return decoded.length >= minimumBytes;
+		const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+		if (bytes.length < minimumBytes || encodeBase64Url(bytes) !== value) throw new Error('non-canonical base64url');
+		return bytes;
+	} catch {
+		throw new Error('invalid base64url');
+	}
+}
+
+function isBase64Url(value: unknown, minimumBytes: number): value is string {
+	try {
+		decodeBase64Url(value, minimumBytes);
+		return true;
 	} catch {
 		return false;
 	}
@@ -84,6 +103,9 @@ export function validateEnvelopeHeader(header: unknown, now = Date.now()): Envel
 	const expiresAt = candidate.expiresAt;
 	if (expiresAt <= issuedAt || expiresAt - issuedAt > maxEnvelopeLifetimeMs) {
 		throw new Error('invalid envelope lifetime');
+	}
+	if (issuedAt > now + maxFutureSkewMs) {
+		throw new Error('future-dated envelope');
 	}
 	if (expiresAt <= now) {
 		throw new Error('expired envelope');
@@ -126,6 +148,20 @@ export function parseEnvelope(value: unknown, now = Date.now()): SignedEnvelope 
 	}
 
 	return { header, ciphertext: candidate.ciphertext, signature: candidate.signature };
+}
+
+export function encodeEnvelope(envelope: SignedEnvelope): string {
+	return JSON.stringify(parseEnvelope(envelope, envelope.header.issuedAt));
+}
+
+export function parseEncodedEnvelope(encoded: string, now = Date.now()): SignedEnvelope {
+	if (typeof encoded !== 'string' || encoded.length > 128 * 1024) throw new Error('invalid encoded envelope');
+	try {
+		return parseEnvelope(JSON.parse(encoded), now);
+	} catch (error) {
+		if (error instanceof SyntaxError) throw new Error('invalid encoded envelope');
+		throw error;
+	}
 }
 
 export class ReplayGuard {
