@@ -91,6 +91,14 @@ export async function importSigningPublicKey(jwk: JsonWebKey): Promise<CryptoKey
 	return subtle().importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']);
 }
 
+export async function importAgreementPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
+	return subtle().importKey('jwk', jwk, { name: 'ECDH', namedCurve: 'P-256' }, true, []);
+}
+
+export async function digest(data: CryptoInput): Promise<ArrayBuffer> {
+	return subtle().digest('SHA-256', toArrayBuffer(data));
+}
+
 export async function deriveSharedSecret(privateKey: CryptoKey, publicKey: CryptoKey): Promise<ArrayBuffer> {
 	return subtle().deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
 }
