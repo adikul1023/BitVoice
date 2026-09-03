@@ -4,6 +4,8 @@ import {
 	encodeEnvelope,
 	parseEncodedEnvelope,
 	signingBytes,
+	canonicalizeHeader,
+	type EnvelopeHeader,
 	type SignedEnvelope,
 } from '@securevoice/protocol';
 
@@ -54,11 +56,13 @@ export async function signEnvelope(privateKey: CryptoKey, envelope: Pick<SignedE
 
 export async function verifyEnvelope(
 	encodedEnvelope: string,
-	publicKey: CryptoKey,
+	resolveSenderKey: (senderKeyId: string) => Promise<CryptoKey | undefined>,
 	replayGuard: { accept(messageId: string, expiresAt: number, now?: number): void },
 	now = Date.now(),
 ): Promise<SignedEnvelope> {
 	const envelope = parseEncodedEnvelope(encodedEnvelope, now);
+	const publicKey = await resolveSenderKey(envelope.header.senderKeyId);
+	if (!publicKey) throw new Error('unknown sender key');
 	const valid = await verify(publicKey, decodeBase64Url(envelope.signature), signingBytes(envelope));
 	if (!valid) throw new Error('invalid envelope signature');
 	replayGuard.accept(envelope.header.messageId, envelope.header.expiresAt, now);
@@ -84,22 +88,19 @@ export async function deriveMessageKey(sharedSecret: CryptoInput, salt: CryptoIn
 	);
 }
 
-function requireAdditionalData(additionalData: CryptoInput | undefined): ArrayBuffer {
-	if (!additionalData || ArrayBuffer.isView(additionalData) && additionalData.byteLength === 0 || additionalData instanceof ArrayBuffer && additionalData.byteLength === 0) {
-		throw new Error('AES-GCM additional data is required');
-	}
-	return toArrayBuffer(additionalData);
+function headerAdditionalData(header: EnvelopeHeader): ArrayBuffer {
+	return toArrayBuffer(new TextEncoder().encode(canonicalizeHeader(header)));
 }
 
-export async function encrypt(key: CryptoKey, plaintext: CryptoInput, additionalData: CryptoInput): Promise<EncryptedPayload> {
+export async function encrypt(key: CryptoKey, plaintext: CryptoInput, header: EnvelopeHeader): Promise<EncryptedPayload> {
 	const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-	const aad = requireAdditionalData(additionalData);
+	const aad = headerAdditionalData(header);
 	const ciphertext = await subtle().encrypt({ name: 'AES-GCM', iv: toArrayBuffer(iv), additionalData: aad }, key, toArrayBuffer(plaintext));
 	return { iv, ciphertext };
 }
 
-export async function decrypt(key: CryptoKey, payload: EncryptedPayload, additionalData: CryptoInput): Promise<ArrayBuffer> {
-	const aad = requireAdditionalData(additionalData);
+export async function decrypt(key: CryptoKey, payload: EncryptedPayload, header: EnvelopeHeader): Promise<ArrayBuffer> {
+	const aad = headerAdditionalData(header);
 	if (payload.iv.byteLength !== 12) throw new Error('invalid AES-GCM IV');
 	return subtle().decrypt({ name: 'AES-GCM', iv: toArrayBuffer(payload.iv), additionalData: aad }, key, payload.ciphertext);
 }

@@ -36,13 +36,14 @@ The signing input is UTF-8 bytes of `canonicalHeader + "." + ciphertext`. The si
 
 ## Validation order
 
-1. Parse the envelope shape and reject non-objects.
-2. Reject unknown versions and message types.
-3. Validate base64url identifiers, nonce, timestamps, payload size, and maximum lifetime.
-4. Reject expired messages.
-5. Reject a previously accepted `messageId`.
-6. Verify the sender signature against a known key. Unverified senders are allowed only by a future pairing flow.
-7. Decrypt and validate the message-specific payload.
+1. Parse and validate structure and time.
+2. Resolve the sender key from `senderKeyId`.
+3. Verify the signature.
+4. Record replay state.
+5. Decrypt with the canonical header as AES-GCM additional authenticated data.
+6. Validate the message-specific payload.
+
+Structural validation includes rejecting unknown versions and message types, non-canonical base64url, invalid identifiers, oversized payloads, and lifetimes over 15 minutes. Unverified senders are allowed only by a future pairing flow. A failed signature must never consume replay state.
 
 Parsing and validation must never request microphone permission, create a peer connection, or start a call.
 

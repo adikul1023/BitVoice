@@ -140,7 +140,12 @@ export function parseEnvelope(value: unknown, now = Date.now()): SignedEnvelope 
 
 	const candidate = value as Partial<SignedEnvelope>;
 	const header = validateEnvelopeHeader(candidate.header, now);
-	if (typeof candidate.ciphertext !== 'string' || candidate.ciphertext.length === 0 || candidate.ciphertext.length > 64 * 1024) {
+	if (
+		typeof candidate.ciphertext !== 'string' ||
+		candidate.ciphertext.length === 0 ||
+		candidate.ciphertext.length > 64 * 1024 ||
+		!isBase64Url(candidate.ciphertext, 1)
+	) {
 		throw new Error('invalid ciphertext');
 	}
 	if (!isBase64Url(candidate.signature, 64)) {

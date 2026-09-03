@@ -81,24 +81,27 @@ describe('Phase 1 Web Crypto baseline', () => {
     const encoded = await signEnvelope(keyPair.privateKey, { header, ciphertext: envelope.ciphertext });
     const replayGuard = new ReplayGuard();
     const decoded = JSON.parse(encoded) as typeof envelope;
+    const resolveSenderKey = async (senderKeyId: string) => senderKeyId === header.senderKeyId ? keyPair.publicKey : undefined;
 
-    expect(await verifyEnvelope(encoded, keyPair.publicKey, replayGuard, header.issuedAt)).toEqual(decoded);
-    await expect(verifyEnvelope(encoded, keyPair.publicKey, replayGuard, header.issuedAt)).rejects.toThrow('replayed message');
+    expect(await verifyEnvelope(encoded, resolveSenderKey, replayGuard, header.issuedAt)).toEqual(decoded);
+    await expect(verifyEnvelope(encoded, resolveSenderKey, replayGuard, header.issuedAt)).rejects.toThrow('replayed message');
+    await expect(verifyEnvelope(encoded, async () => undefined, new ReplayGuard(), header.issuedAt)).rejects.toThrow('unknown sender key');
 
     const alteredSignatureBytes = decodeBase64Url(decoded.signature);
     alteredSignatureBytes[0] ^= 1;
     const alteredSignature = JSON.stringify({ ...decoded, signature: encodeBase64Url(alteredSignatureBytes) });
     const invalidPacketGuard = new ReplayGuard();
-    await expect(verifyEnvelope(alteredSignature, keyPair.publicKey, invalidPacketGuard, header.issuedAt)).rejects.toThrow('invalid envelope signature');
-    await expect(verifyEnvelope(encoded, keyPair.publicKey, invalidPacketGuard, header.issuedAt)).resolves.toEqual(decoded);
-    await expect(verifyEnvelope(encoded, keyPair.publicKey, new ReplayGuard(), header.expiresAt)).rejects.toThrow('expired envelope');
+    await expect(verifyEnvelope(alteredSignature, resolveSenderKey, invalidPacketGuard, header.issuedAt)).rejects.toThrow('invalid envelope signature');
+    await expect(verifyEnvelope(encoded, resolveSenderKey, invalidPacketGuard, header.issuedAt)).resolves.toEqual(decoded);
+    await expect(verifyEnvelope(encoded, resolveSenderKey, new ReplayGuard(), header.expiresAt)).rejects.toThrow('expired envelope');
   });
 
   it('rejects altered header, ciphertext, signature, and IV', async () => {
     const keyPair = await generateSigningKeyPair();
     const encoded = await signEnvelope(keyPair.privateKey, { header, ciphertext: envelope.ciphertext });
     const decoded = JSON.parse(encoded) as typeof envelope;
-    const alter = (value: typeof envelope) => verifyEnvelope(JSON.stringify(value), keyPair.publicKey, new ReplayGuard(), header.issuedAt);
+    const resolveSenderKey = async () => keyPair.publicKey;
+    const alter = (value: typeof envelope) => verifyEnvelope(JSON.stringify(value), resolveSenderKey, new ReplayGuard(), header.issuedAt);
     const alteredSignatureBytes = decodeBase64Url(decoded.signature);
     alteredSignatureBytes[0] ^= 1;
 
@@ -112,13 +115,11 @@ describe('Phase 1 Web Crypto baseline', () => {
 
     const messageKey = await deriveMessageKey(new Uint8Array(32), new Uint8Array(16), new TextEncoder().encode('securevoice/test/v1'));
     const plaintext = new TextEncoder().encode('deterministic test payload');
-    const aad = new TextEncoder().encode('securevoice/aad/v1');
-    const ciphertext = await encrypt(messageKey, plaintext, aad);
-    const decrypted = await decrypt(messageKey, ciphertext, aad);
+    const ciphertext = await encrypt(messageKey, plaintext, header);
+    const decrypted = await decrypt(messageKey, ciphertext, header);
 
     expect(new TextDecoder().decode(decrypted)).toBe('deterministic test payload');
-    await expect(decrypt(messageKey, { ...ciphertext, iv: new Uint8Array(12).fill(1) }, aad)).rejects.toThrow();
-    await expect(decrypt(messageKey, ciphertext, new TextEncoder().encode('altered-aad'))).rejects.toThrow();
-    await expect(encrypt(messageKey, plaintext, undefined as never)).rejects.toThrow('additional data is required');
+    await expect(decrypt(messageKey, { ...ciphertext, iv: new Uint8Array(12).fill(1) }, header)).rejects.toThrow();
+    await expect(decrypt(messageKey, ciphertext, { ...header, type: 'ack' })).rejects.toThrow();
   });
 });
