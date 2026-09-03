@@ -24,6 +24,7 @@ p { max-width: 38rem; color: #52717a; line-height: 1.6; }
 .panel button { margin-top: 1rem; }
 textarea { display: block; width: 100%; min-height: 8rem; margin: 1.5rem 0 0; padding: .8rem; border: 1px solid #a9c2bf; border-radius: 2px; background: #fffdf9; color: #183b56; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .72rem; line-height: 1.5; resize: vertical; }
 .pairing canvas { display: block; margin: 2rem 0; max-width: 100%; height: auto; }
+.scanner video { display: block; width: min(100%, 28rem); margin: 2rem 0; background: #183b56; aspect-ratio: 4 / 3; object-fit: cover; }
 .contact-list { display: grid; gap: 1rem; }
 .contact { display: flex; justify-content: space-between; gap: 2rem; padding: 1.3rem; border: 1px solid #cddbd8; background: rgba(255,255,255,.4); }
 .fingerprint { overflow-wrap: anywhere; font-size: .62rem; }

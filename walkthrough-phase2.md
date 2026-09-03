@@ -9,6 +9,8 @@
 - Added the responsive identity setup, contacts, QR invitation, invitation import, response review, SAS comparison, verification, block, remove, and key-fingerprint screens.
 - Added `fake-indexeddb` tests proving identity persistence and a two-identity invitation/response flow.
 - Added an explicit key-replacement flow: the user selects an existing contact, the old key is blocked, and the replacement is saved separately as unverified until the user enters a matching fresh SAS. Automatic recovery from lost keys is not implemented.
+- Replaced the text/file response round-trip with scan-to-scan pairing: Alice displays an invitation QR, Bob scans it and immediately displays a response QR, and Alice scans the response QR.
+- Replaced the text/file response round-trip with scan-to-scan pairing: Alice displays an invitation QR, Bob scans it and immediately displays a response QR, and Alice scans the response QR.
 
 ## Verification
 
@@ -36,3 +38,59 @@ The integrated browser smoke check was attempted, but this environment does not 
 - [x] Every created invitation nonce is persisted, must match an exact pending local invitation, and is consumed atomically with contact storage.
 - [x] Pairing artifacts have a 16 KiB input cap, strict field checks, exact 64-byte signatures, and a ten-minute future expiry bound.
 - [ ] Cross-browser QR scanning and full two-device UI walkthrough require a browser runtime with camera/test support.
+
+## Important changed snippets
+
+The UI now chooses separate scanner modes for the two signed artifact roles:
+
+```tsx
+<button onClick={() => { setScanMode('invitation'); setView('scan'); }}>
+	Scan invitation QR
+</button>
+<button onClick={() => { setScanMode('response'); setView('scan'); }}>
+	Scan response QR
+</button>
+```
+
+After Bob scans Alice's invitation, the signed response is displayed directly as a QR artifact:
+
+```tsx
+const response = await createResponse(localIdentity, imported);
+setPending({ invitation: imported, response, phrase: await getPairingPhrase(imported, JSON.parse(response)) });
+setView('review');
+```
+
+The camera result is passed into the same artifact validation and pending-invitation acceptance path used by the tests:
+
+```tsx
+const scanner = new ScannerConstructor(video, (result) => {
+	scanner.stop();
+	void onScan(result.data);
+}, { highlightScanRegion: true, highlightCodeOutline: true });
+```
+
+No protocol security property changed: the scanner only supplies the encoded input; signatures, expiry, nonce matching/consumption, SAS confirmation, and contact states remain enforced by `identity.ts`.
+
+## Important implementation snippets
+
+The responder now displays its signed response artifact directly as a QR value:
+
+```tsx
+function Invite({ artifact, title }: { artifact: string; title: string }) {
+	return <div className="panel pairing">
+		<h1>{title}</h1>
+		<QRCodeCanvas value={artifact} size={240} includeMargin />
+	</div>;
+}
+```
+
+The scanner accepts only the decoded signed artifact; the existing parser, signature checks, pending nonce lookup, and SAS flow remain authoritative:
+
+```tsx
+const scanner = new QrScanner(video, (result) => {
+	scanner.stop();
+	void onScan(result.data);
+}, { highlightScanRegion: true, highlightCodeOutline: true });
+```
+
+The Phase 2 test suite still verifies the security properties independently of camera availability: identity persistence, signed pairing, nonce binding/consumption, bounded artifacts, replacement blocking, and SAS matching.
