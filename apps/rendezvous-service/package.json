@@ -1,0 +1,10 @@
+{
+  "name": "@securevoice/rendezvous-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "build": "tsc --build",
+    "typecheck": "tsc --build"
+  }
+}

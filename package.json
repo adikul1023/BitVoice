@@ -1,0 +1,34 @@
+{
+  "name": "securevoice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SecureVoice v1 monorepo",
+  "engines": {
+    "node": ">=22.14.0 <23"
+  },
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @securevoice/web",
+    "dev:rendezvous": "npm run dev --workspace @securevoice/rendezvous-service",
+    "typecheck": "tsc --build",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "build": "npm run build --workspace @securevoice/web && npm run build --workspace @securevoice/rendezvous-service"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/node": "^22.10.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.17.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

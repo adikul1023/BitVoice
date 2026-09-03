@@ -1,0 +1,7 @@
+{
+  "name": "@securevoice/webrtc",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "scripts": { "typecheck": "tsc --build" }
+}

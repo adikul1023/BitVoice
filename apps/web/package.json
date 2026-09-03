@@ -1,0 +1,15 @@
+{
+  "name": "@securevoice/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --build"
+  },
+  "dependencies": {
+    "@securevoice/ui": "*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

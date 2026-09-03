@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/web" },
+    { "path": "./apps/rendezvous-service" },
+    { "path": "./packages/protocol" },
+    { "path": "./packages/crypto" },
+    { "path": "./packages/webrtc" },
+    { "path": "./packages/ui" }
+  ]
+}
