@@ -19,7 +19,7 @@ npm test
 npm run build
 ```
 
-Observed: all four commands pass; 12 tests pass across 3 test files. The Phase 2 tests verify non-extractable keys survive IndexedDB reload, two independent identities produce a signed response and six-word SAS, and an explicitly selected old key is blocked before a replacement is saved unverified.
+Observed: all four commands pass; 15 tests pass across 3 test files. The Phase 2 tests verify non-extractable keys survive IndexedDB reload, two independent identities produce a signed response and six-word SAS, an explicitly selected old key is blocked before a replacement is saved unverified, SAS matching rejects incorrect input, unsolicited/mismatched/replayed response nonces are rejected, and oversized/future-dated artifacts are rejected before signature work.
 
 The integrated browser smoke check was attempted, but this environment does not have the Playwright Chromium executable installed. The Vite production build completed successfully; install the project browser binary before performing an interactive browser acceptance run.
 
@@ -33,4 +33,6 @@ The integrated browser smoke check was attempted, but this environment does not 
 - [x] No account, server contact directory, WebRTC, rendezvous, or microphone behavior was added.
 - [x] User-directed key replacement blocks the old key and requires fresh SAS verification for the new key.
 - [x] Automatic recovery from a lost identity key is explicitly out of scope pending a separate recovery/key-rotation design.
+- [x] Every created invitation nonce is persisted, must match an exact pending local invitation, and is consumed atomically with contact storage.
+- [x] Pairing artifacts have a 16 KiB input cap, strict field checks, exact 64-byte signatures, and a ten-minute future expiry bound.
 - [ ] Cross-browser QR scanning and full two-device UI walkthrough require a browser runtime with camera/test support.
