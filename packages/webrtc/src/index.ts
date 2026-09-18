@@ -29,7 +29,7 @@ export type CallEvent =
 const transitions: Record<CallState, Partial<Record<CallEvent, CallState>>> = {
 	idle: { 'prepare-outgoing': 'outgoing-preparing', 'incoming-received': 'incoming-offer' },
 	'outgoing-preparing': { 'offer-sent': 'outgoing-rendezvous', end: 'ending' },
-	'outgoing-rendezvous': { 'offer-accepted': 'outgoing-connecting', end: 'ending' },
+	'outgoing-rendezvous': { 'offer-accepted': 'outgoing-connecting', 'incoming-received': 'incoming-offer', end: 'ending' },
 	'outgoing-connecting': { 'connection-established': 'ice-connected', 'connection-failed': 'ending', end: 'ending' },
 	'incoming-offer': { 'review-incoming': 'incoming-review', end: 'ending' },
 	'incoming-review': { 'accept-incoming': 'incoming-accepted', end: 'ending' },
@@ -47,9 +47,19 @@ export function transitionCall(state: CallState, event: CallEvent): CallState {
 	return next;
 }
 
+export type PrivacyMode = 'direct-preferred' | 'private-relay-only';
+
+export type SignalPayload = {
+	signal: RTCSessionDescriptionInit | RTCIceCandidateInit;
+	privacyMode?: PrivacyMode;
+};
+
 export type DirectCallConfig = {
+	localKeyId: string;
+	remoteKeyId: string;
 	iceServers?: RTCIceServer[];
-	onSignal: (signal: RTCSessionDescriptionInit | RTCIceCandidateInit) => Promise<void>;
+	privacyMode?: PrivacyMode;
+	onSignal: (payload: SignalPayload) => Promise<void>;
 	onStateChange?: (state: CallState) => void;
 	onRemoteStream?: (stream: MediaStream) => void;
 	createFinishMessage?: () => Promise<string>;
@@ -60,10 +70,10 @@ export type DirectCall = {
 	get state(): CallState;
 	get peerConnection(): RTCPeerConnection | undefined;
 	startOutgoing(): Promise<RTCSessionDescriptionInit>;
-	receiveOffer(offer: RTCSessionDescriptionInit): Promise<void>;
+	receiveOffer(payload: SignalPayload): Promise<void>;
 	acceptIncoming(): Promise<RTCSessionDescriptionInit>;
-	receiveAnswer(answer: RTCSessionDescriptionInit): Promise<void>;
-	receiveIceCandidate(candidate: RTCIceCandidateInit): Promise<void>;
+	receiveAnswer(payload: SignalPayload): Promise<void>;
+	receiveIceCandidate(payload: SignalPayload): Promise<void>;
 	restartIce(): Promise<void>;
 	end(): Promise<void>;
 };
@@ -73,6 +83,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 	let connection: RTCPeerConnection | undefined;
 	let localStream: MediaStream | undefined;
 	let pendingOffer: RTCSessionDescriptionInit | undefined;
+	let pendingCandidates: RTCIceCandidateInit[] = [];
 	let controlChannel: RTCDataChannel | undefined;
 	let finishSent = false;
 	let iceRestartUsed = false;
@@ -83,11 +94,11 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 		if (connection) return connection;
 		connection = new RTCPeerConnection({
 			iceServers: config.iceServers ?? [],
-			iceTransportPolicy: 'all',
+			iceTransportPolicy: config.privacyMode === 'private-relay-only' ? 'relay' : 'all',
 			bundlePolicy: 'max-bundle',
 			rtcpMuxPolicy: 'require',
 		});
-		connection.onicecandidate = (event) => { if (event.candidate) void config.onSignal(event.candidate.toJSON()); };
+		connection.onicecandidate = (event) => { if (event.candidate) void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode }); };
 		connection.onconnectionstatechange = () => {
 			if (connection?.connectionState === 'connected') {
 				if (state === 'outgoing-connecting' || state === 'incoming-connecting') {
@@ -131,11 +142,36 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			const offer = await peer.createOffer();
 			await peer.setLocalDescription(offer);
 			move('offer-sent');
+			await config.onSignal({ signal: offer, privacyMode: config.privacyMode });
 			return offer;
 		},
-		async receiveOffer(offer) {
+		async receiveOffer(payload) {
+			if (payload.privacyMode === 'private-relay-only' && config.privacyMode !== 'private-relay-only') {
+				throw new Error('Peer requested private-relay-only mode, but local config is direct-preferred');
+			}
+			if (config.privacyMode === 'private-relay-only' && payload.privacyMode !== 'private-relay-only') {
+				throw new Error('Local requires private-relay-only mode, but peer requested direct-preferred');
+			}
+			if (state === 'outgoing-rendezvous') {
+				const polite = config.localKeyId < config.remoteKeyId;
+				if (!polite) {
+					return;
+				}
+				if (connection) {
+					connection.close();
+					connection = undefined;
+					controlChannel = undefined;
+				}
+				if (localStream) {
+					for (const track of localStream.getTracks()) track.stop();
+					localStream = undefined;
+				}
+				iceRestartUsed = false;
+				finishSent = false;
+				pendingCandidates = [];
+			}
 			move('incoming-received');
-			pendingOffer = offer;
+			pendingOffer = payload.signal as RTCSessionDescriptionInit;
 			move('review-incoming');
 		},
 		async acceptIncoming() {
@@ -146,24 +182,38 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			const answer = await ensureConnection().createAnswer();
 			await ensureConnection().setLocalDescription(answer);
 			move('offer-sent');
+			for (const candidate of pendingCandidates) {
+				await ensureConnection().addIceCandidate(candidate).catch(() => {});
+			}
+			pendingCandidates = [];
 			return answer;
 		},
-		async receiveAnswer(answer) {
-			await ensureConnection().setRemoteDescription(answer);
-			if (state !== 'outgoing-connecting') move('offer-accepted');
+		async receiveAnswer(payload) {
+			if (payload.privacyMode === 'private-relay-only' && config.privacyMode !== 'private-relay-only') {
+				throw new Error('Peer requested private-relay-only mode, but local config is direct-preferred');
+			}
+			if (config.privacyMode === 'private-relay-only' && payload.privacyMode !== 'private-relay-only') {
+				throw new Error('Local requires private-relay-only mode, but peer requested direct-preferred');
+			}
+			move('offer-accepted');
+			await ensureConnection().setRemoteDescription(payload.signal as RTCSessionDescriptionInit);
 		},
-		async receiveIceCandidate(candidate) {
+		async receiveIceCandidate(payload) {
+			if (state === 'incoming-review') {
+				if (pendingCandidates.length < 64) pendingCandidates.push(payload.signal as RTCIceCandidateInit);
+				return;
+			}
 			if (state !== 'outgoing-connecting' && state !== 'incoming-connecting' && state !== 'ice-connected') {
 				throw new Error('ICE candidate not expected in current call state');
 			}
-			await ensureConnection().addIceCandidate(candidate);
+			await ensureConnection().addIceCandidate(payload.signal as RTCIceCandidateInit);
 		},
 		async restartIce() {
 			if (iceRestartUsed || !connection || state !== 'outgoing-connecting') throw new Error('ICE restart unavailable');
 			iceRestartUsed = true;
 			const offer = await connection.createOffer({ iceRestart: true });
 			await connection.setLocalDescription(offer);
-			await config.onSignal(offer);
+			await config.onSignal({ signal: offer, privacyMode: config.privacyMode });
 		},
 		async end() {
 			if (state !== 'ending' && state !== 'ended') move('end');
@@ -172,6 +222,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			connection = undefined;
 			localStream = undefined;
 			pendingOffer = undefined;
+			pendingCandidates = [];
 			controlChannel = undefined;
 			finishSent = false;
 			if (state === 'ending') move('cleanup');

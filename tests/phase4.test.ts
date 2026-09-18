@@ -8,14 +8,17 @@ class FakeStream {
   getTracks() { return [this.track]; }
 }
 
-class FakePeerConnection {
+export class FakePeerConnection {
+  config: RTCConfiguration;
+  constructor(config?: RTCConfiguration) { this.config = config || {}; }
   connectionState = 'new';
   onicecandidate: ((event: { candidate?: { toJSON: () => RTCIceCandidateInit } }) => void) | null = null;
   onconnectionstatechange: (() => void) | null = null;
   ontrack: ((event: { streams: MediaStream[] }) => void) | null = null;
-  readonly dataChannel = { readyState: 'open', onopen: null as (() => void) | null, onmessage: null as ((event: { data: unknown }) => void) | null, sent: [] as string[], send: (message: string) => { this.dataChannel.sent.push(message); } };
+  readonly dataChannel = { label: 'securevoice-control', readyState: 'open', onopen: null as (() => void) | null, onmessage: null as ((event: { data: unknown }) => void) | null, sent: [] as string[], send: function(message: string) { this.sent.push(message); } };
   readonly addedCandidates: RTCIceCandidateInit[] = [];
   readonly localDescriptions: RTCSessionDescriptionInit[] = [];
+  get localDescription() { return this.localDescriptions[this.localDescriptions.length - 1]; }
   remoteDescription?: RTCSessionDescriptionInit;
   closed = false;
   createDataChannel() { return this.dataChannel; }
@@ -26,15 +29,16 @@ class FakePeerConnection {
   async setRemoteDescription(description: RTCSessionDescriptionInit) { this.remoteDescription = description; }
   async addIceCandidate(candidate: RTCIceCandidateInit) { this.addedCandidates.push(candidate); }
   close() { this.closed = true; }
+  _connect() { this.connectionState = 'connected'; this.onconnectionstatechange?.(); }
 }
 
 const originalPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaDevices = navigator.mediaDevices;
 const fakePeers: FakePeerConnection[] = [];
 
-function installBrowserFakes() {
+export function installBrowserFakes() {
   globalThis.RTCPeerConnection = class extends FakePeerConnection {
-    constructor() { super(); fakePeers.push(this); }
+    constructor(config?: RTCConfiguration) { super(config); fakePeers.push(this); }
   } as unknown as typeof RTCPeerConnection;
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn(async () => new FakeStream()) } });
 }
@@ -63,7 +67,7 @@ describe('Phase 4 call state machine', () => {
     installBrowserFakes();
     const getUserMedia = navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>;
     const signals: unknown[] = [];
-    const outgoing = createDirectCall({ onSignal: async (signal) => { signals.push(signal); } });
+    const outgoing = createDirectCall({ onSignal: async (payload) => { signals.push(payload.signal); } });
     expect(getUserMedia).not.toHaveBeenCalled();
     const offer = await outgoing.startOutgoing();
     expect(getUserMedia).toHaveBeenCalledTimes(1);
@@ -71,22 +75,22 @@ describe('Phase 4 call state machine', () => {
     expect(outgoing.state).toBe('outgoing-rendezvous');
     expect(fakePeers[0].dataChannel).toBeDefined();
     fakePeers[0].onicecandidate?.({ candidate: { toJSON: () => ({ candidate: 'candidate:generated' }) } });
-    expect(signals).toEqual([{ candidate: 'candidate:generated' }]);
+    expect(signals).toEqual([offer, { candidate: 'candidate:generated' }]);
 
-    await outgoing.receiveAnswer({ type: 'answer', sdp: 'answer' });
+    await outgoing.receiveAnswer({ signal: { type: 'answer', sdp: 'answer' } });
     expect(outgoing.state).toBe('outgoing-connecting');
-    await outgoing.receiveIceCandidate({ candidate: 'candidate:1' });
+    await outgoing.receiveIceCandidate({ signal: { candidate: 'candidate:1' } });
     expect(fakePeers[0].addedCandidates).toEqual([{ candidate: 'candidate:1' }]);
     await outgoing.end();
     expect(getUserMedia).toHaveBeenCalledTimes(1);
     expect(fakePeers[0].closed).toBe(true);
 
-    const incoming = createDirectCall({ onSignal: async (signal) => { signals.push(signal); } });
-    await incoming.receiveOffer({ type: 'offer', sdp: 'offer' });
+    const incoming = createDirectCall({ onSignal: async (payload) => { signals.push(payload.signal); } });
+    await incoming.receiveOffer({ signal: { type: 'offer', sdp: 'offer' } });
     expect(getUserMedia).toHaveBeenCalledTimes(1);
     expect(fakePeers).toHaveLength(1);
     expect(incoming.state).toBe('incoming-review');
-    await expect(incoming.receiveIceCandidate({ candidate: 'early-candidate' })).rejects.toThrow('not expected');
+    await expect(incoming.receiveIceCandidate({ signal: { candidate: 'early-candidate' } })).resolves.toBeUndefined();
     expect(fakePeers).toHaveLength(1);
     await incoming.acceptIncoming();
     expect(getUserMedia).toHaveBeenCalledTimes(2);
@@ -102,7 +106,7 @@ describe('Phase 4 call state machine', () => {
       verifyFinishMessage: async (message) => message === 'signed-finish',
     });
     await call.startOutgoing();
-    await call.receiveAnswer({ type: 'answer', sdp: 'answer' });
+    await call.receiveAnswer({ signal: { type: 'answer', sdp: 'answer' } });
     fakePeers[0].connectionState = 'connected';
     fakePeers[0].onconnectionstatechange?.();
     expect(call.state).toBe('ice-connected');
@@ -114,5 +118,33 @@ describe('Phase 4 call state machine', () => {
     fakePeers[0].dataChannel.onmessage?.({ data: 'signed-finish' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(call.state).toBe('connected');
+  });
+
+  it('enforces PrivacyMode relay and prevents downgrades', async () => {
+    installBrowserFakes();
+    
+    // Caller is relay-only
+    const caller = createDirectCall({
+      privacyMode: 'private-relay-only',
+      onSignal: async () => undefined,
+    });
+    await caller.startOutgoing();
+    
+    // Check that iceTransportPolicy is set to relay
+    expect(fakePeers[0].config.iceTransportPolicy).toBe('relay');
+    
+    // Receiver is direct-preferred (default)
+    const receiver = createDirectCall({
+      onSignal: async () => undefined,
+    });
+    
+    // Caller's offer should specify private-relay-only
+    const payload = { signal: { type: 'offer', sdp: 'fake' } as RTCSessionDescriptionInit, privacyMode: 'private-relay-only' as const };
+    
+    // Receiver should reject the offer because it's direct-preferred
+    await expect(receiver.receiveOffer(payload)).rejects.toThrow('Peer requested private-relay-only mode');
+    
+    // Caller receives an answer from someone who didn't respect privacyMode (just in case they hacked it)
+    await expect(caller.receiveAnswer({ signal: { type: 'answer', sdp: 'fake' }, privacyMode: 'direct-preferred' })).rejects.toThrow('Local requires private-relay-only mode');
   });
 });
