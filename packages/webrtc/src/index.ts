@@ -1,3 +1,5 @@
+import type { TurnCredentialProvider } from './turn.js';
+
 export const packageName = '@securevoice/webrtc';
 export type CallState =
 	| 'idle'
@@ -37,7 +39,7 @@ const transitions: Record<CallState, Partial<Record<CallEvent, CallState>>> = {
 	'incoming-review': { 'accept-incoming': 'incoming-accepted', end: 'ending' },
 	'incoming-accepted': { 'offer-sent': 'incoming-connecting', end: 'ending' },
 	'incoming-connecting': { 'connection-established': 'ice-connected', 'connection-failed': 'ending', end: 'ending' },
-	'ice-connected': { 'finish-confirmed': 'connected', end: 'ending' },
+	'ice-connected': { 'finish-confirmed': 'connected', 'connection-failed': 'ending', end: 'ending' },
 	connected: { end: 'ending' },
 	ending: { cleanup: 'ended' },
 	ended: {},
@@ -56,16 +58,36 @@ export type SignalPayload = {
 	privacyMode?: PrivacyMode;
 };
 
+export type CallFinishChallenge = {
+	type: 'CALL_FINISH_CHALLENGE';
+	challenge: string;
+};
+
+export type CallFinish = {
+	type: 'CALL_FINISH';
+	signature: string;
+};
+
+export type MediaPreferences = {
+	audio: boolean;
+	video: boolean;
+};
+
 export type DirectCallConfig = {
 	localKeyId: string;
 	remoteKeyId: string;
-	iceServers?: RTCIceServer[];
+	turnProvider?: TurnCredentialProvider;
+	stunServers?: string[];
 	privacyMode?: PrivacyMode;
+	mediaPreferences?: MediaPreferences; // If undefined, defaults to audio-only for backwards compatibility
 	onSignal: (payload: SignalPayload) => Promise<void>;
 	onStateChange?: (state: CallState) => void;
+	onTrace?: (msg: string) => void;
+	onLocalStream?: (stream: MediaStream) => void;
 	onRemoteStream?: (stream: MediaStream) => void;
-	createFinishMessage?: () => Promise<string>;
-	verifyFinishMessage?: (message: string) => Promise<boolean>;
+	createChallenge?: () => Promise<CallFinishChallenge>;
+	createFinish?: (challenge: CallFinishChallenge) => Promise<CallFinish>;
+	verifyFinish?: (finish: CallFinish, expectedChallenge: CallFinishChallenge) => Promise<boolean>;
 };
 
 export type DirectCall = {
@@ -79,6 +101,8 @@ export type DirectCall = {
 	receiveIceCandidate(payload: SignalPayload): Promise<void>;
 	restartIce(): Promise<void>;
 	end(): Promise<void>;
+	toggleAudio(enabled: boolean): void;
+	toggleVideo(enabled: boolean): void;
 };
 
 export function createDirectCall(config: DirectCallConfig): DirectCall {
@@ -88,28 +112,99 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 	let pendingOffer: RTCSessionDescriptionInit | undefined;
 	let pendingCandidates: RTCIceCandidateInit[] = [];
 	let controlChannel: RTCDataChannel | undefined;
+	let localChallenge: CallFinishChallenge | undefined;
+	let challengeRequested = false;
 	let finishSent = false;
+	let finishTimeout: ReturnType<typeof setTimeout> | undefined;
 	let iceRestartUsed = false;
+	let resolvedIceServers: RTCIceServer[] = [];
+
+	const prepareIceServers = async () => {
+		if (config.turnProvider) {
+			try {
+				resolvedIceServers = await config.turnProvider();
+			} catch {
+				if (config.privacyMode === 'private-relay-only') {
+					throw new Error('Failed to obtain TURN credentials for private-relay-only mode');
+				}
+				resolvedIceServers = [];
+			}
+		} else if (config.privacyMode === 'private-relay-only') {
+			throw new Error('private-relay-only mode requires a turnProvider');
+		}
+
+		if (config.privacyMode !== 'private-relay-only' && config.stunServers && config.stunServers.length > 0) {
+			resolvedIceServers.push({ urls: config.stunServers });
+		}
+	};
 
 	const setState = (next: CallState) => { state = next; config.onStateChange?.(next); };
+	const trace = (msg: string) => config.onTrace?.(msg);
 	const move = (event: CallEvent) => setState(transitionCall(state, event));
+	let statsInterval: ReturnType<typeof setInterval> | undefined;
+	const startStatsPolling = () => {
+		if (statsInterval) return;
+		statsInterval = setInterval(async () => {
+			if (!connection || state !== 'connected') return;
+			try {
+				const stats = await connection.getStats();
+				let selectedPair: any = undefined;
+				stats.forEach(report => {
+					if (report.type === 'candidate-pair' && report.nominated && report.state === 'succeeded') {
+						selectedPair = report;
+					}
+				});
+				if (selectedPair) {
+					const local = stats.get(selectedPair.localCandidateId);
+					const remote = stats.get(selectedPair.remoteCandidateId);
+					if (local && remote) {
+						const isRelay = local.candidateType === 'relay' || remote.candidateType === 'relay';
+						trace(`Selected candidate pair:
+  local: ${local.candidateType}
+  remote: ${remote.candidateType}
+  path: ${isRelay ? 'relay' : 'direct'}`);
+					}
+					// Only log once we find it
+					if (statsInterval) clearInterval(statsInterval);
+					statsInterval = undefined;
+				}
+			} catch (e) {
+				// ignore stats error
+			}
+		}, 2000);
+	};
+
 	const ensureConnection = () => {
 		if (connection) return connection;
 		connection = new RTCPeerConnection({
-			iceServers: config.iceServers ?? [],
+			iceServers: resolvedIceServers,
 			iceTransportPolicy: config.privacyMode === 'private-relay-only' ? 'relay' : 'all',
 			bundlePolicy: 'max-bundle',
 			rtcpMuxPolicy: 'require',
 		});
 		connection.onicecandidate = (event) => {
 			if (event.candidate === null) return;
-			if (event.candidate) void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode });
+			if (event.candidate) {
+				const type = event.candidate.type;
+				trace(`ICE gathering: ${type}`);
+				void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode });
+			}
 		};
 		connection.onconnectionstatechange = () => {
 			if (connection?.connectionState === 'connected') {
 				if (state === 'outgoing-connecting' || state === 'incoming-connecting') {
 					move('connection-established');
-					void sendFinish();
+					if (!finishTimeout) {
+						finishTimeout = setTimeout(() => {
+							if (state === 'ice-connected') {
+								move('connection-failed');
+							}
+						}, 10000);
+					}
+					void sendChallenge();
+				}
+				if (state === 'connected') {
+					startStatsPolling();
 				}
 			} else if (connection && ['failed', 'disconnected'].includes(connection.connectionState) && state === 'outgoing-connecting') {
 				move('connection-failed');
@@ -119,21 +214,46 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 		connection.ontrack = (event) => { if (event.streams[0]) config.onRemoteStream?.(event.streams[0]); };
 		return connection;
 	};
-	const sendFinish = async () => {
-		if (finishSent || !controlChannel || controlChannel.readyState !== 'open' || !config.createFinishMessage) return;
-		finishSent = true;
-		controlChannel.send(await config.createFinishMessage());
+	const sendChallenge = async () => {
+		if (challengeRequested || localChallenge || !controlChannel || controlChannel.readyState !== 'open' || state !== 'ice-connected' || !config.createChallenge) return;
+		challengeRequested = true;
+		
+		localChallenge = await config.createChallenge();
+		controlChannel.send(JSON.stringify(localChallenge));
 	};
 	const configureControlChannel = (channel: RTCDataChannel) => {
-		channel.onopen = () => { void sendFinish(); };
+		channel.onopen = () => { void sendChallenge(); };
 		channel.onmessage = (event) => {
-			if (state !== 'ice-connected' || typeof event.data !== 'string' || !config.verifyFinishMessage) return;
-			void config.verifyFinishMessage(event.data).then((valid) => { if (valid) move('finish-confirmed'); });
+			if (state !== 'ice-connected' || typeof event.data !== 'string') return;
+			try {
+				const msg = JSON.parse(event.data);
+				if (msg.type === 'CALL_FINISH_CHALLENGE' && config.createFinish) {
+					if (!finishSent) {
+						finishSent = true;
+						void config.createFinish(msg as CallFinishChallenge).then((finish) => {
+							if (controlChannel?.readyState === 'open') {
+								controlChannel.send(JSON.stringify(finish));
+							}
+						});
+					}
+				} else if (msg.type === 'CALL_FINISH' && config.verifyFinish && localChallenge) {
+					void config.verifyFinish(msg as CallFinish, localChallenge).then((valid) => { 
+						if (valid && state === 'ice-connected') {
+							if (finishTimeout) clearTimeout(finishTimeout);
+							move('finish-confirmed'); 
+						} 
+					});
+				}
+			} catch {
+				// ignore invalid JSON
+			}
 		};
 	};
-	const requestMicrophone = async () => {
-		localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-		for (const track of localStream.getAudioTracks()) ensureConnection().addTrack(track, localStream);
+	const requestMedia = async () => {
+		const preferences = config.mediaPreferences ?? { audio: true, video: false };
+		localStream = await navigator.mediaDevices.getUserMedia(preferences);
+		config.onLocalStream?.(localStream);
+		for (const track of localStream.getTracks()) ensureConnection().addTrack(track, localStream);
 	};
 
 	return {
@@ -142,7 +262,8 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 		get pendingOffer() { return pendingOffer ? { ...pendingOffer } : undefined; },
 		async startOutgoing() {
 			move('prepare-outgoing');
-			await requestMicrophone();
+			await prepareIceServers();
+			await requestMedia();
 			const peer = ensureConnection();
 			controlChannel = peer.createDataChannel('securevoice-control', { ordered: true });
 			configureControlChannel(controlChannel);
@@ -174,7 +295,13 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 					localStream = undefined;
 				}
 				iceRestartUsed = false;
+				challengeRequested = false;
 				finishSent = false;
+				localChallenge = undefined;
+				if (finishTimeout) clearTimeout(finishTimeout);
+				finishTimeout = undefined;
+				if (statsInterval) clearInterval(statsInterval);
+				statsInterval = undefined;
 				pendingCandidates = [];
 			}
 			move('incoming-received');
@@ -188,7 +315,8 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			move('accept-incoming');
 			
 			try {
-				await requestMicrophone(); // calls ensureConnection() which creates RTCPeerConnection, then getUserMedia()
+				await prepareIceServers();
+				await requestMedia(); // calls ensureConnection() which creates RTCPeerConnection, then getUserMedia()
 				await ensureConnection().setRemoteDescription(offer);
 				const answer = await ensureConnection().createAnswer();
 				await ensureConnection().setLocalDescription(answer);
@@ -265,8 +393,26 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			pendingOffer = undefined;
 			pendingCandidates = [];
 			controlChannel = undefined;
+			challengeRequested = false;
 			finishSent = false;
+			localChallenge = undefined;
+			if (finishTimeout) clearTimeout(finishTimeout);
+			finishTimeout = undefined;
+			if (statsInterval) clearInterval(statsInterval);
+			statsInterval = undefined;
 			if (state === 'ending') move('cleanup');
 		},
+		toggleAudio(enabled: boolean) {
+			if (!localStream) return;
+			for (const track of localStream.getAudioTracks()) {
+				track.enabled = enabled;
+			}
+		},
+		toggleVideo(enabled: boolean) {
+			if (!localStream) return;
+			for (const track of localStream.getVideoTracks()) {
+				track.enabled = enabled;
+			}
+		}
 	};
 }

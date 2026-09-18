@@ -2,6 +2,14 @@
   "name": "@securevoice/webrtc",
   "private": true,
   "type": "module",
-  "exports": "./dist/index.js",
+  "dependencies": {
+    "@securevoice/crypto": "*",
+    "@securevoice/protocol": "*"
+  },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./signaling": { "types": "./dist/signaling.d.ts", "default": "./dist/signaling.js" },
+    "./turn": { "types": "./dist/turn.d.ts", "default": "./dist/turn.js" }
+  },
   "scripts": { "typecheck": "tsc --build" }
 }

@@ -55,11 +55,13 @@ describe('Phase 4 Slice 1: Authenticated Offer Path Only', () => {
 
     // Wire WebRTC Controller
     let iceCandidateCount = 0;
+    let offerSignalCount = 0;
     const alice = createDirectCall({
       localKeyId: aliceKeyId,
       remoteKeyId: bobKeyId,
       onSignal: async (payload) => {
         if ('type' in payload.signal && payload.signal.type === 'offer') {
+          offerSignalCount++;
           // Wrap with the bridge
           await aliceSignaling.send(payload);
         } else if ('candidate' in payload.signal) {
@@ -78,6 +80,7 @@ describe('Phase 4 Slice 1: Authenticated Offer Path Only', () => {
     expect(alice.peerConnection?.localDescription?.type).toBe('offer');
 
     // 2. Exactly one mailbox PUT occurred (the offer)
+    expect(offerSignalCount).toBe(1);
     expect(mockRendezvous.put).toHaveBeenCalledTimes(1);
 
     // 3. The payload is opaque ciphertext and contains no SDP strings

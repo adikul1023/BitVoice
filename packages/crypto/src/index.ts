@@ -9,7 +9,8 @@ import {
 	type SignedEnvelope,
 } from '@securevoice/protocol';
 
-const subtle = () => globalThis.crypto.subtle;
+// Use globalThis.crypto to avoid Vite browser build errors and work natively in Node 20+.
+const subtle = () => globalThis.crypto.subtle as any;
 type CryptoInput = ArrayBuffer | Uint8Array<ArrayBufferLike>;
 
 function toArrayBuffer(input: CryptoInput): ArrayBuffer {
@@ -23,7 +24,7 @@ export type EncryptedPayload = {
 
 export async function generateSigningKeyPair(): Promise<CryptoKeyPair> {
 	return subtle().generateKey(
-		{ name: 'ECDSA', namedCurve: 'P-256' },
+		{ name: 'Ed25519' },
 		false,
 		['sign', 'verify'],
 	) as Promise<CryptoKeyPair>;
@@ -31,7 +32,7 @@ export async function generateSigningKeyPair(): Promise<CryptoKeyPair> {
 
 export async function generateAgreementKeyPair(): Promise<CryptoKeyPair> {
 	return subtle().generateKey(
-		{ name: 'ECDH', namedCurve: 'P-256' },
+		{ name: 'X25519' },
 		false,
 		['deriveBits'],
 	) as Promise<CryptoKeyPair>;
@@ -42,11 +43,11 @@ export async function exportPublicKey(key: CryptoKey): Promise<JsonWebKey> {
 }
 
 export async function sign(privateKey: CryptoKey, data: CryptoInput): Promise<ArrayBuffer> {
-	return subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, toArrayBuffer(data));
+	return subtle().sign({ name: 'Ed25519' }, privateKey, toArrayBuffer(data));
 }
 
 export async function verify(publicKey: CryptoKey, signature: CryptoInput, data: CryptoInput): Promise<boolean> {
-	return subtle().verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, toArrayBuffer(signature), toArrayBuffer(data));
+	return subtle().verify({ name: 'Ed25519' }, publicKey, toArrayBuffer(signature), toArrayBuffer(data));
 }
 
 export async function signEnvelope(privateKey: CryptoKey, envelope: Pick<SignedEnvelope, 'header' | 'ciphertext'>): Promise<string> {
@@ -88,11 +89,19 @@ export async function verifyEnvelope(
 }
 
 export async function importSigningPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
-	return subtle().importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']);
+	return subtle().importKey('jwk', jwk, { name: 'Ed25519' }, true, ['verify']);
 }
 
 export async function importAgreementPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
-	return subtle().importKey('jwk', jwk, { name: 'ECDH', namedCurve: 'P-256' }, true, []);
+	return subtle().importKey('jwk', jwk, { name: 'X25519' }, true, []);
+}
+
+export async function exportAgreementPublicKeyRaw(key: CryptoKey): Promise<ArrayBuffer> {
+	return subtle().exportKey('raw', key);
+}
+
+export async function importAgreementPublicKeyRaw(raw: CryptoInput): Promise<CryptoKey> {
+	return subtle().importKey('raw', toArrayBuffer(raw), { name: 'X25519' }, true, []);
 }
 
 export async function digest(data: CryptoInput): Promise<ArrayBuffer> {
@@ -100,18 +109,45 @@ export async function digest(data: CryptoInput): Promise<ArrayBuffer> {
 }
 
 export async function deriveSharedSecret(privateKey: CryptoKey, publicKey: CryptoKey): Promise<ArrayBuffer> {
-	return subtle().deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
+	return subtle().deriveBits({ name: 'X25519', public: publicKey }, privateKey, 256);
 }
 
-export async function deriveMessageKey(sharedSecret: CryptoInput, salt: CryptoInput, info: CryptoInput): Promise<CryptoKey> {
+export interface SessionKeys {
+	sendingKey: CryptoKey;
+	receivingKey: CryptoKey;
+}
+
+export async function deriveSessionKeys(
+	sharedSecret: CryptoInput,
+	callId: string,
+	role: 'caller' | 'recipient'
+): Promise<SessionKeys> {
 	const baseKey = await subtle().importKey('raw', toArrayBuffer(sharedSecret), 'HKDF', false, ['deriveKey']);
-	return subtle().deriveKey(
-		{ name: 'HKDF', hash: 'SHA-256', salt: toArrayBuffer(salt), info: toArrayBuffer(info) },
+	
+	const callerInfo = new TextEncoder().encode(`SecureVoice Signaling v2|${callId}|caller`);
+	const recipientInfo = new TextEncoder().encode(`SecureVoice Signaling v2|${callId}|recipient`);
+
+	const callerKey = await subtle().deriveKey(
+		{ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: toArrayBuffer(callerInfo) },
 		baseKey,
 		{ name: 'AES-GCM', length: 256 },
 		false,
 		['encrypt', 'decrypt'],
 	);
+	
+	const recipientKey = await subtle().deriveKey(
+		{ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: toArrayBuffer(recipientInfo) },
+		baseKey,
+		{ name: 'AES-GCM', length: 256 },
+		false,
+		['encrypt', 'decrypt'],
+	);
+
+	if (role === 'caller') {
+		return { sendingKey: callerKey, receivingKey: recipientKey };
+	} else {
+		return { sendingKey: recipientKey, receivingKey: callerKey };
+	}
 }
 
 function headerAdditionalData(header: EnvelopeHeader): ArrayBuffer {

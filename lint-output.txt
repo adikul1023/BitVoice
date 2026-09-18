@@ -1,0 +1,102 @@
+
+> securevoice@0.1.0 lint
+> eslint . --max-warnings 0
+
+
+D:\My projects\p2pcall\packages\crypto\src\index.ts
+  15:139  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\My projects\p2pcall\packages\webrtc\src\signaling.ts
+   12:3   error  'ReplayGuard' is defined but never used   @typescript-eslint/no-unused-vars
+   13:3   error  'ReplayError' is defined but never used   @typescript-eslint/no-unused-vars
+  153:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\My projects\p2pcall\tests\e2e.test.ts
+    1:32  error  'vi' is defined but never used                       @typescript-eslint/no-unused-vars
+    2:28  error  'CallState' is defined but never used                @typescript-eslint/no-unused-vars
+   16:85  error  'timeOffset' is assigned a value but never used      @typescript-eslint/no-unused-vars
+   18:40  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   25:39  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   26:48  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   44:33  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   47:40  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  103:42  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  104:40  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  107:37  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  108:36  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  109:36  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  112:24  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  113:24  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  127:11  error  'offer' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  131:43  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  138:11  error  'answer' is assigned a value but never used          @typescript-eslint/no-unused-vars
+  142:46  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  144:52  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  149:30  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  150:28  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  152:30  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  153:28  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  163:25  error  'aliceSignaling' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  166:41  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  178:41  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  184:44  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  205:13  error  'alice' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  205:20  error  'bob' is assigned a value but never used             @typescript-eslint/no-unused-vars
+  212:39  error  'payload' is defined but never used                  @typescript-eslint/no-unused-vars
+  224:41  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  228:44  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  234:30  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  235:28  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  237:30  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  238:28  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  246:53  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  272:14  error  'err' is defined but never used                      @typescript-eslint/no-unused-vars
+  272:19  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  273:7   error  'threwError' is assigned a value but never used      @typescript-eslint/no-unused-vars
+
+D:\My projects\p2pcall\tests\phase1.test.ts
+  15:3   error  'deriveMessageKey' is defined but never used  @typescript-eslint/no-unused-vars
+  51:82  error  Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+
+D:\My projects\p2pcall\tests\signaling.test.ts
+    1:36   error  'beforeEach' is defined but never used                @typescript-eslint/no-unused-vars
+    2:58   error  'SignalingPayload' is defined but never used          @typescript-eslint/no-unused-vars
+    5:36   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+   26:7    error  'messageKey' is assigned a value but never used       @typescript-eslint/no-unused-vars
+  105:21   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  202:106  error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  205:11   error  'originalDecrypt' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  208:73   error  'key' is defined but never used                       @typescript-eslint/no-unused-vars
+  208:78   error  'ct' is defined but never used                        @typescript-eslint/no-unused-vars
+  208:82   error  'header' is defined but never used                    @typescript-eslint/no-unused-vars
+
+D:\My projects\p2pcall\tests\slice1-integration.test.ts
+  103:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\My projects\p2pcall\tests\slice2-integration.test.ts
+    1:32  error  'vi' is defined but never used                       @typescript-eslint/no-unused-vars
+   33:39  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   69:11  error  'fakeIcePayload' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   72:11  error  'lastMsg' is assigned a value but never used         @typescript-eslint/no-unused-vars
+   79:27  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   80:26  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   85:46  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   86:65  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   98:45  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  125:20  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  126:20  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+
+D:\My projects\p2pcall\tests\slice3-integration.test.ts
+   33:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   81:45  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   94:47  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  104:84  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  108:83  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  112:76  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  160:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\My projects\p2pcall\tests\turn.test.ts
+  7:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 77 problems (77 errors, 0 warnings)
+

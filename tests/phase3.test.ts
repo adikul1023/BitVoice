@@ -5,7 +5,7 @@ import { RendezvousStore } from '../apps/rendezvous-service/src/store';
 const servers: ReturnType<typeof createRendezvousServer>[] = [];
 
 async function startServer(store = new RendezvousStore()) {
-  const server = createRendezvousServer({ store });
+  const server = createRendezvousServer({ store, turnSecret: 'test-secret', turnUrls: 'turn:127.0.0.1:3478', turnAuthToken: 'test-token' });
   await new Promise<void>((resolve) => server.listen(0, resolve));
   servers.push(server);
   const address = server.address();

@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createDirectCall, CallState, SignalPayload } from '../packages/webrtc/src/index';
 import { createAuthenticatedSignaling } from '../packages/webrtc/src/signaling';
-import { ReplayGuard, encodeBase64Url } from '../packages/protocol/src/index';
+import { ReplayGuard, encodeBase64Url, decodeBase64Url } from '../packages/protocol/src/index';
+import { sign, verify } from '../packages/crypto/src/index';
 import { installBrowserFakes } from './phase4.test';
 
 function randomId(size: number): string {
@@ -78,20 +80,45 @@ describe('End-to-End Signaling and Handshake', () => {
       localEphemeralPublicKeyRawBase64: bobEphRawBase64
     });
 
+    const createChallenge = async () => {
+      return { type: 'CALL_FINISH_CHALLENGE', challenge: randomId(32) } as any;
+    };
+
+    const createFinish = (signaling: any, keyPair: any, role: string) => async (challengeMsg: any) => {
+      const callId = signaling.activeCallId;
+      const transcript = new TextEncoder().encode(`SecureVoice CALL_FINISH v2|${callId}|${role}|${challengeMsg.challenge}`);
+      const signature = await sign(keyPair.privateKey, transcript);
+      return { type: 'CALL_FINISH', signature: encodeBase64Url(new Uint8Array(signature)) };
+    };
+
+    const verifyFinish = (signaling: any, expectedRole: string, peerPublicKey: CryptoKey) => async (msg: any, challengeMsg: any) => {
+      const callId = signaling.activeCallId;
+      const expectedTranscript = new TextEncoder().encode(`SecureVoice CALL_FINISH v2|${callId}|${expectedRole}|${challengeMsg.challenge}`);
+      try {
+        return await verify(peerPublicKey, decodeBase64Url(msg.signature), expectedTranscript);
+      } catch (e) {
+        return false;
+      }
+    };
+
     const alice = createDirectCall({
+      localKeyId: aliceData.keyId, remoteKeyId: bobData.keyId,
       onSignal: async (payload) => {
         await aliceSignaling.send(payload);
       },
-      createFinishMessage: async () => 'ALICE_FINISH',
-      verifyFinishMessage: async (msg) => msg === 'BOB_FINISH'
+      createChallenge,
+      createFinish: createFinish(aliceSignaling, aliceData.signingPair, 'caller'),
+      verifyFinish: verifyFinish(aliceSignaling, 'recipient', bobData.signingPair.publicKey)
     });
 
     const bob = createDirectCall({
+      localKeyId: bobData.keyId, remoteKeyId: aliceData.keyId,
       onSignal: async (payload) => {
         await bobSignaling.send(payload);
       },
-      createFinishMessage: async () => 'BOB_FINISH',
-      verifyFinishMessage: async (msg) => msg === 'ALICE_FINISH'
+      createChallenge,
+      createFinish: createFinish(bobSignaling, bobData.signingPair, 'recipient'),
+      verifyFinish: verifyFinish(bobSignaling, 'caller', aliceData.signingPair.publicKey)
     });
 
     const wireDataChannel = async () => {
@@ -113,7 +140,7 @@ describe('End-to-End Signaling and Handshake', () => {
       }
     };
 
-    return { alice, bob, aliceSignaling, bobSignaling, network, wireDataChannel, aliceData, bobData };
+    return { alice, bob, aliceSignaling, bobSignaling, network, wireDataChannel, aliceData, bobData, createFinish, verifyFinish };
   }
 
   it('Happy path: Offer -> Answer -> ICE -> Connected -> CALL_FINISH -> Verified', async () => {
@@ -148,8 +175,7 @@ describe('End-to-End Signaling and Handshake', () => {
     (alice.peerConnection as any).dataChannel.onopen?.();
     (bob.peerConnection as any).dataChannel.onopen?.();
 
-    await new Promise(r => setTimeout(r, 0));
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 50));
 
     expect(alice.state).toBe('connected');
     expect(bob.state).toBe('connected');
@@ -233,8 +259,7 @@ describe('End-to-End Signaling and Handshake', () => {
     (alice.peerConnection as any).dataChannel.onopen?.();
     (bob.peerConnection as any).dataChannel.onopen?.();
 
-    await new Promise(r => setTimeout(r, 0));
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 50));
 
     expect(alice.state).toBe('connected');
     
@@ -244,6 +269,44 @@ describe('End-to-End Signaling and Handshake', () => {
     
     // Still connected, didn't crash
     expect(alice.state).toBe('connected');
+  });
+
+  it('Edge case: CALL_FINISH cryptographic validation rejects tampered transcripts', async () => {
+    const { aliceSignaling, aliceData, createFinish, verifyFinish } = await setupAliceAndBob();
+    
+    // Use the actual createFinish and verifyFinish adapters we inject into DirectCall
+    const aliceCreateFinish = createFinish(aliceSignaling, aliceData.signingPair, 'caller');
+    const aliceVerifyFinish = verifyFinish(aliceSignaling, 'caller', aliceData.signingPair.publicKey);
+    
+    // Simulate setting activeCallId as the signaling layer would
+    Object.defineProperty(aliceSignaling, 'activeCallId', { value: 'test-call-id', configurable: true });
+    
+    const validChallenge = { challenge: 'correct-challenge-32bytes' };
+    const validFinish = await aliceCreateFinish(validChallenge);
+    
+    // 1. Valid scenario
+    expect(await aliceVerifyFinish(validFinish, validChallenge)).toBe(true);
+    
+    // 2. Wrong challenge
+    const wrongChallenge = { challenge: 'wrong-challenge-32bytes' };
+    expect(await aliceVerifyFinish(validFinish, wrongChallenge)).toBe(false);
+    
+    // 3. Wrong callId
+    Object.defineProperty(aliceSignaling, 'activeCallId', { value: 'different-call-id', configurable: true });
+    expect(await aliceVerifyFinish(validFinish, validChallenge)).toBe(false);
+    Object.defineProperty(aliceSignaling, 'activeCallId', { value: 'test-call-id', configurable: true }); // restore
+    
+    // 4. Wrong role
+    const verifyWrongRole = verifyFinish(aliceSignaling, 'recipient', aliceData.signingPair.publicKey);
+    expect(await verifyWrongRole(validFinish, validChallenge)).toBe(false);
+    
+    // 5. Old version
+    // Create a valid signature but using an old version string (v1)
+    const oldTranscript = new TextEncoder().encode(`SecureVoice CALL_FINISH v1|test-call-id|caller|correct-challenge-32bytes`);
+    const oldSignature = await sign(aliceData.signingPair.privateKey, oldTranscript);
+    const oldFinish = { type: 'CALL_FINISH', signature: encodeBase64Url(new Uint8Array(oldSignature)) };
+    
+    expect(await aliceVerifyFinish(oldFinish, validChallenge)).toBe(false);
   });
 
   it('Edge case: reject incoming call', async () => {

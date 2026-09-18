@@ -8,12 +8,13 @@ export type MessageType =
 	| 'ack';
 
 export type EnvelopeHeader = {
-	version: 1;
+	version: number;
 	type: MessageType;
 	messageId: string;
 	callId?: string;
 	senderKeyId: string;
 	recipientKeyId?: string;
+	ephemeralPublicKey: string;
 	issuedAt: number;
 	expiresAt: number;
 	nonce: string;
@@ -76,7 +77,8 @@ export function validateEnvelopeHeader(header: unknown, now = Date.now()): Envel
 	}
 
 	const candidate = header as Partial<EnvelopeHeader>;
-	if (candidate.version !== 1 || !messageTypes.has(candidate.type as MessageType)) {
+	if (candidate.version !== 2 || !messageTypes.has(candidate.type as MessageType)) {
+		console.log('validateEnvelopeHeader failed!', JSON.stringify(candidate));
 		throw new Error('unsupported envelope version or type');
 	}
 	if (!isBase64Url(candidate.messageId, 16) || !isBase64Url(candidate.senderKeyId, 16)) {
@@ -87,6 +89,9 @@ export function validateEnvelopeHeader(header: unknown, now = Date.now()): Envel
 	}
 	if (candidate.recipientKeyId !== undefined && !isBase64Url(candidate.recipientKeyId, 16)) {
 		throw new Error('invalid recipient identifier');
+	}
+	if (!isBase64Url(candidate.ephemeralPublicKey, 32)) {
+		throw new Error('invalid ephemeral public key');
 	}
 	if (!isBase64Url(candidate.nonce, 12)) {
 		throw new Error('invalid envelope nonce');
@@ -123,6 +128,7 @@ export function canonicalizeHeader(header: EnvelopeHeader): string {
 		['callId', header.callId ?? null],
 		['senderKeyId', header.senderKeyId],
 		['recipientKeyId', header.recipientKeyId ?? null],
+		['ephemeralPublicKey', header.ephemeralPublicKey],
 		['issuedAt', header.issuedAt],
 		['expiresAt', header.expiresAt],
 		['nonce', header.nonce],
@@ -174,6 +180,13 @@ export function parseEncodedEnvelope(encoded: string, now = Date.now()): SignedE
 	}
 }
 
+export class ReplayError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ReplayError';
+	}
+}
+
 export class ReplayGuard {
 	private readonly seen = new Map<string, number>();
 
@@ -182,7 +195,7 @@ export class ReplayGuard {
 			if (seenExpiry <= now) this.seen.delete(seenId);
 		}
 		if (this.seen.has(messageId)) {
-			throw new Error('replayed message');
+			throw new ReplayError('replayed message');
 		}
 		this.seen.set(messageId, expiresAt);
 	}

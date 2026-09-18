@@ -102,8 +102,9 @@ describe('Phase 4 call state machine', () => {
     installBrowserFakes();
     const call = createDirectCall({
       onSignal: async () => undefined,
-      createFinishMessage: async () => 'signed-finish',
-      verifyFinishMessage: async (message) => message === 'signed-finish',
+      createChallenge: async () => ({ type: 'CALL_FINISH_CHALLENGE', challenge: 'local-challenge' }),
+      createFinish: async () => ({ type: 'CALL_FINISH', signature: 'signed-finish' }),
+      verifyFinish: async (message) => message.signature === 'signed-finish',
     });
     await call.startOutgoing();
     await call.receiveAnswer({ signal: { type: 'answer', sdp: 'answer' } });
@@ -112,10 +113,18 @@ describe('Phase 4 call state machine', () => {
     expect(call.state).toBe('ice-connected');
     fakePeers[0].dataChannel.onopen?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fakePeers[0].dataChannel.sent).toEqual(['signed-finish']);
-    fakePeers[0].dataChannel.onmessage?.({ data: 'not-signed' });
+    expect(fakePeers[0].dataChannel.sent).toEqual([JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'local-challenge' })]);
+    
+    // Remote sends challenge
+    fakePeers[0].dataChannel.onmessage?.({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fakePeers[0].dataChannel.sent[1]).toEqual(JSON.stringify({ type: 'CALL_FINISH', signature: 'signed-finish' }));
+    
+    fakePeers[0].dataChannel.onmessage?.({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'not-signed' }) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(call.state).toBe('ice-connected');
-    fakePeers[0].dataChannel.onmessage?.({ data: 'signed-finish' });
+    
+    fakePeers[0].dataChannel.onmessage?.({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'signed-finish' }) });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(call.state).toBe('connected');
   });
@@ -126,6 +135,7 @@ describe('Phase 4 call state machine', () => {
     // Caller is relay-only
     const caller = createDirectCall({
       privacyMode: 'private-relay-only',
+      turnProvider: async () => [],
       onSignal: async () => undefined,
     });
     await caller.startOutgoing();

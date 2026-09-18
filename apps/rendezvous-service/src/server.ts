@@ -1,12 +1,25 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
-import { RendezvousStore } from './store.js';
+import { createHmac, randomBytes } from 'node:crypto';
+import { RendezvousStore } from './store.ts';
 
 const maxBodyBytes = 64 * 1024;
-type ServerOptions = { store?: RendezvousStore; now?: () => number };
+type ServerOptions = { 
+  store?: RendezvousStore; 
+  now?: () => number;
+  turnSecret?: string;
+  turnUrls?: string[];
+  turnAuthToken?: string;
+};
+
+const corsHeaders = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, PUT, POST, DELETE, OPTIONS',
+  'access-control-allow-headers': 'content-type, authorization',
+};
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...corsHeaders });
   response.end(JSON.stringify(body));
 }
 
@@ -50,6 +63,9 @@ function waitForMessages(request: IncomingMessage, mailboxId: string, store: Ren
 }
 
 export function createRendezvousServer(options: ServerOptions = {}): Server {
+  if (!options.turnSecret || !options.turnUrls || !options.turnAuthToken) {
+    throw new Error('Missing TURN configuration');
+  }
   const store = options.store ?? new RendezvousStore();
   const now = options.now ?? Date.now;
 
@@ -57,9 +73,41 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
     try {
       const requestUrl = new URL(request.url ?? '/', 'http://localhost');
 
+      // Handle CORS preflight
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204, corsHeaders);
+        response.end();
+        return;
+      }
+
       const parts = route(requestUrl.pathname);
       if (request.method === 'GET' && requestUrl.pathname === '/healthz') {
         writeJson(response, 200, { service: 'rendezvous-service', status: 'ok', phase: 3 });
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/v1/turn') {
+        const auth = request.headers.authorization;
+        if (auth !== `Bearer ${options.turnAuthToken}`) {
+          writeJson(response, 401, { error: 'unauthorized' });
+          return;
+        }
+        
+        // 1 hour expiry
+        const expiresAt = Math.floor(now() / 1000) + 3600;
+        const username = `${expiresAt}:${randomBytes(8).toString('hex')}`;
+        const credential = createHmac('sha1', options.turnSecret!).update(username).digest('base64');
+        
+        writeJson(response, 200, {
+          expiresAt: expiresAt * 1000,
+          iceServers: [
+            {
+              urls: options.turnUrls,
+              username,
+              credential
+            }
+          ]
+        });
         return;
       }
 
@@ -101,7 +149,15 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 8787);
-  createRendezvousServer().listen(port, () => {
+  if (!process.env.TURN_SECRET || !process.env.TURN_URLS || !process.env.TURN_AUTH_TOKEN) {
+    console.error("Missing required TURN environment variables: TURN_SECRET, TURN_URLS, TURN_AUTH_TOKEN");
+    process.exit(1);
+  }
+  createRendezvousServer({
+    turnSecret: process.env.TURN_SECRET,
+    turnUrls: process.env.TURN_URLS.split(',').map(s => s.trim()),
+    turnAuthToken: process.env.TURN_AUTH_TOKEN
+  }).listen(port, () => {
     console.log(`SecureVoice rendezvous service listening on http://localhost:${port}`);
   });
 }

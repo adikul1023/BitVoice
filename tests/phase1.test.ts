@@ -23,10 +23,11 @@ import {
 } from '../packages/crypto/src/index';
 
 const header: EnvelopeHeader = {
-  version: 1,
-  type: 'pairing-offer',
+  version: 2 as const,
+  type: 'pairing-offer' as const,
   messageId: 'AAAAAAAAAAAAAAAAAAAAAA',
   senderKeyId: 'AgICAgICAgICAgICAgICAg',
+  ephemeralPublicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   issuedAt: 1_700_000_000_000,
   expiresAt: 1_700_000_600_000,
   nonce: 'AQEBAQEBAQEBAQEBAQEB',
@@ -41,13 +42,13 @@ const envelope = {
 describe('Phase 1 protocol contract', () => {
   it('has a deterministic canonical header vector', () => {
     expect(canonicalizeHeader(header)).toBe(
-      '[["version",1],["type","pairing-offer"],["messageId","AAAAAAAAAAAAAAAAAAAAAA"],["callId",null],["senderKeyId","AgICAgICAgICAgICAgICAg"],["recipientKeyId",null],["issuedAt",1700000000000],["expiresAt",1700000600000],["nonce","AQEBAQEBAQEBAQEBAQEB"]]',
+      '[["version",2],["type","pairing-offer"],["messageId","AAAAAAAAAAAAAAAAAAAAAA"],["callId",null],["senderKeyId","AgICAgICAgICAgICAgICAg"],["recipientKeyId",null],["ephemeralPublicKey","AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],["issuedAt",1700000000000],["expiresAt",1700000600000],["nonce","AQEBAQEBAQEBAQEBAQEB"]]',
     );
   });
 
   it('rejects expired, malformed, and oversized envelopes', () => {
     expect(() => parseEnvelope({ ...envelope, header: { ...header, expiresAt: header.issuedAt + 1 } }, header.expiresAt)).toThrow('expired envelope');
-    expect(() => parseEnvelope({ ...envelope, header: { ...header, version: 2 } }, header.issuedAt)).toThrow('unsupported envelope version');
+    expect(() => parseEnvelope({ ...envelope, header: { ...header, version: 3 as any } }, header.issuedAt)).toThrow('unsupported envelope version');
     expect(() => parseEnvelope({ ...envelope, ciphertext: '' }, header.issuedAt)).toThrow('invalid ciphertext');
     expect(() => parseEnvelope({ ...envelope, ciphertext: 'x'.repeat(64 * 1024 + 1) }, header.issuedAt)).toThrow('invalid ciphertext');
   });
@@ -100,7 +101,9 @@ describe('Phase 1 Web Crypto baseline', () => {
 
   it('encrypts, signs, verifies, and decrypts one envelope payload', async () => {
     const signingKeyPair = await generateSigningKeyPair();
-    const messageKey = await deriveMessageKey(new Uint8Array(32), new Uint8Array(16), new TextEncoder().encode('securevoice/envelope/v1'));
+    const { deriveSessionKeys } = await import('@securevoice/crypto');
+    const { sendingKey } = await deriveSessionKeys(new Uint8Array(32).buffer, 'test-call', 'caller');
+    const messageKey = sendingKey;
     const plaintext = new TextEncoder().encode('complete envelope round trip');
     const ciphertext = await encryptEnvelope(messageKey, plaintext, header);
     const encoded = await signEnvelope(signingKeyPair.privateKey, { header, ciphertext });
@@ -132,7 +135,9 @@ describe('Phase 1 Web Crypto baseline', () => {
     await expect(globalThis.crypto.subtle.exportKey('jwk', keyPair.privateKey)).rejects.toThrow();
     await expect(verify(keyPair.publicKey, new Uint8Array(64), signingBytes({ header, ciphertext: envelope.ciphertext }))).resolves.toBe(false);
 
-    const messageKey = await deriveMessageKey(new Uint8Array(32), new Uint8Array(16), new TextEncoder().encode('securevoice/test/v1'));
+    const { deriveSessionKeys } = await import('@securevoice/crypto');
+    const { sendingKey } = await deriveSessionKeys(new Uint8Array(32).buffer, 'test-call', 'caller');
+    const messageKey = sendingKey;
     const plaintext = new TextEncoder().encode('deterministic test payload');
     const ciphertext = await encrypt(messageKey, plaintext, header);
     const decrypted = await decrypt(messageKey, ciphertext, header);
