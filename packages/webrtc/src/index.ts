@@ -26,6 +26,8 @@ export type CallEvent =
 	| 'end'
 	| 'cleanup';
 
+const MAX_PENDING_ICE_CANDIDATES = 64;
+
 const transitions: Record<CallState, Partial<Record<CallEvent, CallState>>> = {
 	idle: { 'prepare-outgoing': 'outgoing-preparing', 'incoming-received': 'incoming-offer' },
 	'outgoing-preparing': { 'offer-sent': 'outgoing-rendezvous', end: 'ending' },
@@ -99,7 +101,10 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			bundlePolicy: 'max-bundle',
 			rtcpMuxPolicy: 'require',
 		});
-		connection.onicecandidate = (event) => { if (event.candidate) void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode }); };
+		connection.onicecandidate = (event) => {
+			if (event.candidate === null) return;
+			if (event.candidate) void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode });
+		};
 		connection.onconnectionstatechange = () => {
 			if (connection?.connectionState === 'connected') {
 				if (state === 'outgoing-connecting' || state === 'incoming-connecting') {
@@ -222,14 +227,27 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			await ensureConnection().setRemoteDescription(payload.signal as RTCSessionDescriptionInit);
 		},
 		async receiveIceCandidate(payload) {
+			if (state === 'ended' || state === 'ending') return;
+
+			const init = payload.signal as RTCIceCandidateInit;
+			if (init === null) return;
+			
+			if (typeof init.candidate !== 'string') throw new Error('Invalid ICE candidate payload');
+			if (init.candidate.length > 2048) throw new Error('ICE candidate exceeds maximum allowed length');
+			if (init.sdpMid !== undefined && init.sdpMid !== null && typeof init.sdpMid !== 'string') throw new Error('Invalid sdpMid');
+			if (init.sdpMLineIndex !== undefined && init.sdpMLineIndex !== null && typeof init.sdpMLineIndex !== 'number') throw new Error('Invalid sdpMLineIndex');
+			if (init.usernameFragment !== undefined && init.usernameFragment !== null && typeof init.usernameFragment !== 'string') throw new Error('Invalid usernameFragment');
+
 			if (state === 'incoming-review') {
-				if (pendingCandidates.length < 64) pendingCandidates.push(payload.signal as RTCIceCandidateInit);
+				if (pendingCandidates.length < MAX_PENDING_ICE_CANDIDATES) {
+					pendingCandidates.push(init);
+				}
 				return;
 			}
 			if (state !== 'outgoing-connecting' && state !== 'incoming-connecting' && state !== 'ice-connected') {
 				throw new Error('ICE candidate not expected in current call state');
 			}
-			await ensureConnection().addIceCandidate(payload.signal as RTCIceCandidateInit);
+			await ensureConnection().addIceCandidate(init);
 		},
 		async restartIce() {
 			if (iceRestartUsed || !connection || state !== 'outgoing-connecting') throw new Error('ICE restart unavailable');

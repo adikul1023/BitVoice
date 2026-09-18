@@ -80,10 +80,7 @@ describe('End-to-End Signaling and Handshake', () => {
 
     const alice = createDirectCall({
       onSignal: async (payload) => {
-        if ('type' in payload.signal && payload.signal.type === 'offer') {
-          await aliceSignaling.send(payload);
-        }
-        // defer ICE for later slice
+        await aliceSignaling.send(payload);
       },
       createFinishMessage: async () => 'ALICE_FINISH',
       verifyFinishMessage: async (msg) => msg === 'BOB_FINISH'
@@ -91,9 +88,7 @@ describe('End-to-End Signaling and Handshake', () => {
 
     const bob = createDirectCall({
       onSignal: async (payload) => {
-        if ('type' in payload.signal && (payload.signal.type === 'offer' || payload.signal.type === 'answer')) {
-          await bobSignaling.send(payload);
-        }
+        await bobSignaling.send(payload);
       },
       createFinishMessage: async () => 'BOB_FINISH',
       verifyFinishMessage: async (msg) => msg === 'ALICE_FINISH'
@@ -128,9 +123,10 @@ describe('End-to-End Signaling and Handshake', () => {
     
     await bobSignaling.receive(async (payload) => {
       if (payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') {
-        await bob.receiveOffer(payload as any);
+        await bob.receiveOffer(payload as SignalPayload);
+      } else if (payload.signal && 'candidate' in payload.signal) {
+        await bob.receiveIceCandidate(payload as SignalPayload);
       }
-      // explicitly reject (drop) non-offer messages in slice 2
     });
     
     expect(bob.state).toBe('incoming-review');
