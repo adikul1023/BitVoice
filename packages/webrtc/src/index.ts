@@ -69,6 +69,7 @@ export type DirectCallConfig = {
 export type DirectCall = {
 	get state(): CallState;
 	get peerConnection(): RTCPeerConnection | undefined;
+	get pendingOffer(): RTCSessionDescriptionInit | undefined;
 	startOutgoing(): Promise<RTCSessionDescriptionInit>;
 	receiveOffer(payload: SignalPayload): Promise<void>;
 	acceptIncoming(): Promise<RTCSessionDescriptionInit>;
@@ -180,19 +181,35 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			const offer = pendingOffer;
 			pendingOffer = undefined;
 			move('accept-incoming');
-			await requestMicrophone(); // calls ensureConnection() which creates RTCPeerConnection, then getUserMedia()
-			await ensureConnection().setRemoteDescription(offer);
-			const answer = await ensureConnection().createAnswer();
-			await ensureConnection().setLocalDescription(answer);
 			
-			await config.onSignal({ signal: answer, privacyMode: config.privacyMode });
-			move('offer-sent'); // transitioning to incoming-connecting in the state machine
-			
-			for (const candidate of pendingCandidates) {
-				await ensureConnection().addIceCandidate(candidate).catch(() => {});
+			try {
+				await requestMicrophone(); // calls ensureConnection() which creates RTCPeerConnection, then getUserMedia()
+				await ensureConnection().setRemoteDescription(offer);
+				const answer = await ensureConnection().createAnswer();
+				await ensureConnection().setLocalDescription(answer);
+				
+				await config.onSignal({ signal: answer, privacyMode: config.privacyMode });
+				move('offer-sent'); // transitioning to incoming-connecting in the state machine
+				
+				for (const candidate of pendingCandidates) {
+					await ensureConnection().addIceCandidate(candidate).catch(() => {});
+				}
+				pendingCandidates = [];
+				return answer;
+			} catch (err) {
+				if (connection) {
+					connection.close();
+					connection = undefined;
+				}
+				if (localStream) {
+					localStream.getTracks().forEach((track) => track.stop());
+					localStream = undefined;
+				}
+				pendingCandidates = [];
+				if (state !== 'ending' && state !== 'ended') move('end');
+				if (state === 'ending') move('cleanup');
+				throw err;
 			}
-			pendingCandidates = [];
-			return answer;
 		},
 		async receiveAnswer(payload) {
 			if (payload.privacyMode === 'private-relay-only' && config.privacyMode !== 'private-relay-only') {

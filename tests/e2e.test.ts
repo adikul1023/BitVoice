@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createDirectCall, CallState } from '../packages/webrtc/src/index';
+import { createDirectCall, CallState, SignalPayload } from '../packages/webrtc/src/index';
 import { createAuthenticatedSignaling } from '../packages/webrtc/src/signaling';
 import { ReplayGuard, encodeBase64Url } from '../packages/protocol/src/index';
 import { installBrowserFakes } from './phase4.test';
@@ -221,11 +221,11 @@ describe('End-to-End Signaling and Handshake', () => {
     const { alice, bob, aliceSignaling, bobSignaling, wireDataChannel } = await setupAliceAndBob();
     await alice.startOutgoing();
     await bobSignaling.receive(async (payload) => {
-      await bob.receiveOffer(payload as any);
+      await bob.receiveOffer(payload as SignalPayload);
     });
     await bob.acceptIncoming();
     await aliceSignaling.receive(async (payload) => {
-      await alice.receiveAnswer(payload as any);
+      await alice.receiveAnswer(payload as SignalPayload);
     });
     
     // Simulate replay

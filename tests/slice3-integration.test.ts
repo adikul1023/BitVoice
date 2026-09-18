@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDirectCall } from '../packages/webrtc/src/index';
+import { createDirectCall, SignalPayload } from '../packages/webrtc/src/index';
 import { createAuthenticatedSignaling, RendezvousClient } from '../packages/webrtc/src/signaling';
 import { ReplayGuard, encodeBase64Url } from '../packages/protocol/src/index';
 import { webcrypto } from 'node:crypto';
@@ -30,7 +30,7 @@ describe('Phase 4 Slice 3: Authenticated Answer Path Only', () => {
     const bobEph = await subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']) as CryptoKeyPair;
     const bobEphRawBase64 = encodeBase64Url(new Uint8Array(await subtle.exportKey('raw', bobEph.publicKey)));
 
-    const mailboxes = new Map<string, any[]>();
+    const mailboxes = new Map<string, unknown[]>();
     const mockRendezvous: RendezvousClient = {
       put: async (m, msg) => { const ms = mailboxes.get(m) || []; ms.push(msg); mailboxes.set(m, ms); },
       get: async (m) => mailboxes.get(m) || [],
@@ -78,7 +78,7 @@ describe('Phase 4 Slice 3: Authenticated Answer Path Only', () => {
     await bobSignaling.receive(async (payload) => {
       if (payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') {
         if (bob.state === 'idle') {
-          await bob.receiveOffer(payload as any);
+          await bob.receiveOffer(payload as SignalPayload);
         }
       }
     });
@@ -91,7 +91,7 @@ describe('Phase 4 Slice 3: Authenticated Answer Path Only', () => {
     expect(bob.peerConnection).toBeUndefined();
 
     // Setup spies for peer connection behaviors
-    const FakePeerConnection = (globalThis as any).RTCPeerConnection;
+    const FakePeerConnection = (globalThis as unknown as { RTCPeerConnection: typeof RTCPeerConnection }).RTCPeerConnection;
     const originalSetRemote = FakePeerConnection.prototype.setRemoteDescription;
     const originalSetLocal = FakePeerConnection.prototype.setLocalDescription;
     const originalCreateAnswer = FakePeerConnection.prototype.createAnswer;
@@ -101,15 +101,15 @@ describe('Phase 4 Slice 3: Authenticated Answer Path Only', () => {
     let localDescriptionSet = false;
     let answerCreated = false;
     
-    FakePeerConnection.prototype.setRemoteDescription = vi.fn(async function(this: any, desc) {
+    FakePeerConnection.prototype.setRemoteDescription = vi.fn(async function(this: RTCPeerConnection, desc) {
       remoteDescriptionSet = true;
       return originalSetRemote.call(this, desc);
     });
-    FakePeerConnection.prototype.setLocalDescription = vi.fn(async function(this: any, desc) {
+    FakePeerConnection.prototype.setLocalDescription = vi.fn(async function(this: RTCPeerConnection, desc) {
       localDescriptionSet = true;
       return originalSetLocal.call(this, desc);
     });
-    FakePeerConnection.prototype.createAnswer = vi.fn(async function(this: any) {
+    FakePeerConnection.prototype.createAnswer = vi.fn(async function(this: RTCPeerConnection) {
       answerCreated = true;
       return originalCreateAnswer.call(this);
     });
@@ -157,7 +157,7 @@ describe('Phase 4 Slice 3: Authenticated Answer Path Only', () => {
     expect(JSON.stringify(aliceReceivedEnvelope)).not.toContain('fake-answer-sdp');
     
     // Let Alice receive it to prove it's a valid answer
-    const aliceReceivedAnswers: any[] = [];
+    const aliceReceivedAnswers: RTCSessionDescriptionInit[] = [];
     await aliceSignaling.receive(async (payload) => {
       if (payload.signal && 'type' in payload.signal && payload.signal.type === 'answer') {
         aliceReceivedAnswers.push(payload.signal);
@@ -198,6 +198,10 @@ describe('Phase 4 Slice 3: Authenticated Answer Path Only', () => {
     
     // State is left broken, pendingOffer is cleared (preventing retries)
     expect(bob.pendingOffer).toBeUndefined();
+    
+    // 4. Assert cleanup
+    expect(bob.peerConnection).toBeUndefined();
+    expect(bob.state).toBe('ended'); // end() transitions to ended
     
     getUserMediaSpy.mockRestore();
   });
