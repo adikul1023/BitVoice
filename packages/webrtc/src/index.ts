@@ -133,6 +133,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 	return {
 		get state() { return state; },
 		get peerConnection() { return connection; },
+		get pendingOffer() { return pendingOffer; },
 		async startOutgoing() {
 			move('prepare-outgoing');
 			await requestMicrophone();

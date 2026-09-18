@@ -127,8 +127,10 @@ describe('End-to-End Signaling and Handshake', () => {
     const offer = await alice.startOutgoing();
     
     await bobSignaling.receive(async (payload) => {
-      if (payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') await bob.receiveOffer(payload as any);
-      else if (payload.signal && 'candidate' in payload.signal) await bob.receiveIceCandidate(payload as any);
+      if (payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') {
+        await bob.receiveOffer(payload as any);
+      }
+      // explicitly reject (drop) non-offer messages in slice 2
     });
     
     expect(bob.state).toBe('incoming-review');
@@ -137,8 +139,11 @@ describe('End-to-End Signaling and Handshake', () => {
     await bobSignaling.send({ callId: '123', signal: answer });
 
     await aliceSignaling.receive(async (payload) => {
-      if (payload.signal && 'type' in payload.signal && payload.signal.type === 'answer') await alice.receiveAnswer(payload as any);
-      else if (payload.signal && 'candidate' in payload.signal) await alice.receiveIceCandidate(payload as any);
+      if (payload.signal && 'type' in payload.signal && payload.signal.type === 'answer') {
+        await alice.receiveAnswer(payload as any);
+      } else if (payload.signal && 'candidate' in payload.signal) {
+        await alice.receiveIceCandidate(payload as any);
+      }
     });
 
     await wireDataChannel();
