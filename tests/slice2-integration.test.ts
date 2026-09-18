@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, expect, it, vi } from 'vitest';
 import { createDirectCall } from '../packages/webrtc/src/index';
 import { createAuthenticatedSignaling, RendezvousClient } from '../packages/webrtc/src/signaling';
@@ -30,7 +31,7 @@ describe('Phase 4 Slice 2: Authenticated Incoming Offer Path Only', () => {
     const bobEph = await subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']) as CryptoKeyPair;
     const bobEphRawBase64 = encodeBase64Url(new Uint8Array(await subtle.exportKey('raw', bobEph.publicKey)));
 
-    const mailboxes = new Map<string, any[]>();
+    const mailboxes = new Map<string, unknown[]>();
     const mockRendezvous: RendezvousClient = {
       put: async (m, msg) => { const ms = mailboxes.get(m) || []; ms.push(msg); mailboxes.set(m, ms); },
       get: async (m) => mailboxes.get(m) || [],
@@ -76,14 +77,14 @@ describe('Phase 4 Slice 2: Authenticated Incoming Offer Path Only', () => {
     // Assert mailbox has 3 messages
     expect(mailboxes.get('bob-mailbox')?.length).toBe(3);
 
-    const receivedOffers: any[] = [];
-    const receivedOther: any[] = [];
+    const receivedOffers: unknown[] = [];
+    const receivedOther: unknown[] = [];
     
     // Patch the payload inside the intercepted message so it decrypts but contains ICE
     // We mock the adapter to see what it receives
     const originalReceive = bobSignaling.receive;
-    bobSignaling.receive = async (onPayload: any, waitSeconds = 0) => {
-      return originalReceive.call(bobSignaling, async (payload: any, callId: string) => {
+    bobSignaling.receive = async (onPayload: unknown, waitSeconds = 0) => {
+      return originalReceive.call(bobSignaling, async (payload: unknown, callId: string) => {
         if (payload.signal.sdp === 'dummy-to-force-offer-header') {
           payload.signal = { candidate: 'candidate:1' };
         }
@@ -95,7 +96,7 @@ describe('Phase 4 Slice 2: Authenticated Incoming Offer Path Only', () => {
       if (payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') {
         receivedOffers.push(payload.signal);
         if (bob.state === 'idle') {
-          await bob.receiveOffer(payload as any);
+          await bob.receiveOffer(payload as unknown);
         }
       } else {
         receivedOther.push(payload.signal);
@@ -122,8 +123,8 @@ describe('Phase 4 Slice 2: Authenticated Incoming Offer Path Only', () => {
     // The DirectCall interface doesn't expose `pendingOffer` directly, but we can verify 
     // it's ready by accepting it later (though we don't implement acceptIncoming in this slice).
     // Or we cast it to any and check internals.
-    expect((bob as any).pendingOffer).toBeDefined();
-    expect((bob as any).pendingOffer.sdp).toBe('offer1');
+    expect((bob as unknown).pendingOffer).toBeDefined();
+    expect((bob as unknown).pendingOffer.sdp).toBe('offer1');
 
     // 5. Mixed signaling processed without aborting - The mailbox should be fully ACK'd
     expect(mailboxes.get('bob-mailbox')?.length).toBe(0);

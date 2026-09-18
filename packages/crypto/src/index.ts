@@ -10,7 +10,7 @@ import {
 } from '@securevoice/protocol';
 
 // Use globalThis.crypto to avoid Vite browser build errors and work natively in Node 20+.
-const subtle = () => globalThis.crypto.subtle as any;
+const subtle = () => globalThis.crypto.subtle as SubtleCrypto;
 type CryptoInput = ArrayBuffer | Uint8Array<ArrayBufferLike>;
 
 function toArrayBuffer(input: CryptoInput): ArrayBuffer {

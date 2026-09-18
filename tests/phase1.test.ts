@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, expect, it } from 'vitest';
 import {
   ReplayGuard,
@@ -48,7 +49,7 @@ describe('Phase 1 protocol contract', () => {
 
   it('rejects expired, malformed, and oversized envelopes', () => {
     expect(() => parseEnvelope({ ...envelope, header: { ...header, expiresAt: header.issuedAt + 1 } }, header.expiresAt)).toThrow('expired envelope');
-    expect(() => parseEnvelope({ ...envelope, header: { ...header, version: 3 as any } }, header.issuedAt)).toThrow('unsupported envelope version');
+    expect(() => parseEnvelope({ ...envelope, header: { ...header, version: 3 as unknown } }, header.issuedAt)).toThrow('unsupported envelope version');
     expect(() => parseEnvelope({ ...envelope, ciphertext: '' }, header.issuedAt)).toThrow('invalid ciphertext');
     expect(() => parseEnvelope({ ...envelope, ciphertext: 'x'.repeat(64 * 1024 + 1) }, header.issuedAt)).toThrow('invalid ciphertext');
   });

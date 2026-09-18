@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { SessionManager } from './session.js';
 import { loadIdentity, listContacts, type LocalIdentity, type Contact } from './identity.js';
-import type { CallState, PrivacyMode, MediaPreferences } from '@securevoice/webrtc';
+import type { CallState, MediaPreferences } from '@securevoice/webrtc';
 
 declare global {
   interface ImportMeta {

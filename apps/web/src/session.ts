@@ -1,5 +1,5 @@
 import { createAuthenticatedSignaling } from '@securevoice/webrtc/signaling';
-import { createDirectCall, type CallState, type DirectCall, type PrivacyMode, type CallEvent, type MediaPreferences } from '@securevoice/webrtc';
+import { createDirectCall, type CallState, type DirectCall, type PrivacyMode, type MediaPreferences, type DirectCallConfig, type SignalPayload } from '@securevoice/webrtc';
 import { createRendezvousTurnProvider } from '@securevoice/webrtc/turn';
 import { generateAgreementKeyPair, importAgreementPublicKey, importSigningPublicKey } from '@securevoice/crypto';
 import { ReplayGuard, encodeBase64Url } from '@securevoice/protocol';
@@ -56,7 +56,7 @@ export class SessionManager {
     }
   }
 
-  private async handleSignal(payload: any) {
+  private async handleSignal(payload: SignalPayload) {
     if (!this.activeCall) return;
     if ('type' in payload.signal) {
       if (payload.signal.type === 'answer') {
@@ -85,9 +85,9 @@ export class SessionManager {
         if (parsed.header.type === 'call-offer') {
           this.trace('incoming offer received');
           // Start a new inbound session
-          await this.setupInboundCall(contact, msg);
+          await this.setupInboundCall(contact);
         }
-      } catch (e) {
+      } catch {
         // invalid envelope
       }
     }
@@ -95,7 +95,7 @@ export class SessionManager {
 
   private settingUpCall = false; // guard against concurrent setupInboundCall
 
-  private async setupInboundCall(caller: Contact, initialOfferMsg: RendezvousMessage) {
+  private async setupInboundCall(caller: Contact) {
     if (this.activeCall || this.settingUpCall) {
       this.trace(`[inbound] skipped – busy (activeCall=${!!this.activeCall}, settingUp=${this.settingUpCall})`);
       return;
@@ -137,17 +137,17 @@ export class SessionManager {
       });
       this.trace('[inbound] signaling created');
 
-      const callConfig: any = {
+      const callConfig: DirectCallConfig = {
         localKeyId: this.config.identity.keyId,
         remoteKeyId: caller.contactId,
         stunServers: ['stun:stun.l.google.com:19302'],
-        onSignal: async (payload: any) => {
+        onSignal: async (payload: SignalPayload) => {
           if ('type' in payload.signal && payload.signal.type === 'answer') this.trace('answer generated');
           if ('candidate' in payload.signal) this.trace('ICE candidate sent');
           await this.activeSignaling!.send(payload);
           if ('type' in payload.signal && payload.signal.type === 'answer') this.trace('answer delivered');
         },
-        onStateChange: (state: any) => {
+        onStateChange: (state: CallState) => {
           this.trace(state);
           this.config.onCallStateChange(state);
           if (state === 'ended' || state === 'idle') {
@@ -164,9 +164,10 @@ export class SessionManager {
 
       // Decode the offer from the initial message using our signaling layer (which also ACKs it).
       this.trace('[inbound] calling receive() to decrypt offer...');
-      let offerPayload: any;
+      let offerPayload: SignalPayload | undefined;
       await this.activeSignaling.receive(async (payload) => {
-        this.trace(`[inbound] got payload type=${JSON.stringify('type' in payload.signal ? (payload.signal as any).type : 'candidate')}`);
+        const typeStr = 'type' in payload.signal ? payload.signal.type : 'candidate';
+        this.trace(`[inbound] got payload type=${JSON.stringify(typeStr)}`);
         if (!offerPayload && payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') {
           offerPayload = payload;
         }

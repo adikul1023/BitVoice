@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, prefer-const */
+ 
+/* eslint-disable @typescript-eslint/no-unused-vars, prefer-const */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createDirectCall } from '../packages/webrtc/src/index.js';
 import { createRendezvousTurnProvider } from '../packages/webrtc/src/turn.js';
 import { installBrowserFakes } from './phase4.test.js';
 
 describe('Slice 6: TURN / Relay Integration', () => {
-	let fetchMock: any;
+	let fetchMock: unknown;
 	
 	beforeEach(() => {
 		fetchMock = vi.fn();
@@ -20,7 +21,7 @@ describe('Slice 6: TURN / Relay Integration', () => {
 			onSignal: async () => {}
 		});
 		await call.startOutgoing();
-		const config = (call.peerConnection as any)?.config;
+		const config = (call.peerConnection as unknown)?.config;
 	});
 
 	it('2. Relay-only mode uses iceTransportPolicy === "relay"', async () => {
@@ -31,7 +32,7 @@ describe('Slice 6: TURN / Relay Integration', () => {
 			onSignal: async () => {}
 		});
 		await call.startOutgoing();
-		expect((call.peerConnection as any)?.config.iceTransportPolicy).toBe('relay');
+		expect((call.peerConnection as unknown)?.config.iceTransportPolicy).toBe('relay');
 	});
 
 	it('3. Relay credential success configures RTCPeerConnection', async () => {
@@ -44,7 +45,7 @@ describe('Slice 6: TURN / Relay Integration', () => {
 		});
 		await call.startOutgoing();
 		expect(turnProvider).toHaveBeenCalled();
-		const config = (call.peerConnection as any)?.config;
+		const config = (call.peerConnection as unknown)?.config;
 		expect(config?.iceServers).toEqual([{ urls: ['turn:test'], username: 'u', credential: 'c' }]);
 	});
 
@@ -69,7 +70,7 @@ describe('Slice 6: TURN / Relay Integration', () => {
 			onSignal: async () => {}
 		});
 		await call.startOutgoing();
-		const config = (call.peerConnection as any)?.config;
+		const config = (call.peerConnection as unknown)?.config;
 		expect(config?.iceServers).toEqual([]); // empty servers but proceeds
 		expect(config?.iceTransportPolicy).toBe('all');
 	});
@@ -135,7 +136,7 @@ describe('Slice 6: TURN / Relay Integration', () => {
 		
 		// The local transport policy remains strictly relay, never overridden
 		await call.startOutgoing();
-		const config = (call.peerConnection as any)?.config;
+		const config = (call.peerConnection as unknown)?.config;
 		expect(config?.iceTransportPolicy).toBe('relay');
 	});
 
@@ -156,15 +157,15 @@ describe('Slice 6: TURN / Relay Integration', () => {
 		await call.receiveAnswer({ signal: { type: 'answer', sdp: 'fake' } as RTCSessionDescriptionInit, privacyMode: 'private-relay-only' });
 		
 		// Simulate ICE connected
-		(call.peerConnection as any)?._connect();
+		(call.peerConnection as unknown)?._connect();
 		
 		// Since we mocked verifyFinish, it should move to connected
 		// Wait for promises to resolve
 		await new Promise(r => setTimeout(r, 10));
 		
 		// Simulate DataChannel open to trigger challenge flow
-		const dc = (call.peerConnection as any)?.dataChannel;
-		(call.peerConnection as any)?.ondatachannel?.({ channel: dc });
+		const dc = (call.peerConnection as unknown)?.dataChannel;
+		(call.peerConnection as unknown)?.ondatachannel?.({ channel: dc });
 		dc.onopen?.(new Event('open'));
 
 		await new Promise(r => setTimeout(r, 10));

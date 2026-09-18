@@ -1,3 +1,4 @@
+ 
 import { describe, expect, it, vi } from 'vitest';
 import { createDirectCall } from '../packages/webrtc/src/index';
 import { createAuthenticatedSignaling, RendezvousClient } from '../packages/webrtc/src/signaling';
@@ -100,7 +101,7 @@ describe('Phase 4 Slice 1: Authenticated Offer Path Only', () => {
 
     // 4. ICE candidates are generated but dropped by our adapter (not sent to bridge yet)
     // Wait a tick for candidates
-    (alice.peerConnection as any).onicecandidate?.({ candidate: { toJSON: () => ({ candidate: 'fake-ice' }) } });
+    (alice.peerConnection as unknown).onicecandidate?.({ candidate: { toJSON: () => ({ candidate: 'fake-ice' }) } });
     await new Promise(r => setTimeout(r, 0));
     expect(iceCandidateCount).toBe(1);
     expect(mockRendezvous.put).toHaveBeenCalledTimes(1); // Still exactly 1 PUT (the offer)

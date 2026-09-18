@@ -9,8 +9,6 @@ import {
   decodeBase64Url,
   type EnvelopeHeader,
   type SignedEnvelope,
-  ReplayGuard,
-  ReplayError,
 } from '@securevoice/protocol';
 import type { PrivacyMode, SignalPayload as WebrtcSignalPayload } from './index.js';
 
@@ -180,8 +178,8 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
           
           await onPayload({ signal: payload.signal, privacyMode: payload.privacyMode }, payload.callId);
           await config.rendezvous.ack(config.mailboxId, message.messageId);
-        } catch (error: any) {
-          if (error?.name === 'ReplayError') {
+        } catch (error: unknown) {
+          if ((error as Error)?.name === 'ReplayError') {
             await config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {});
             continue;
           }

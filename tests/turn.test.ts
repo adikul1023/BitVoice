@@ -1,10 +1,11 @@
+ 
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRendezvousServer } from '../apps/rendezvous-service/src/server';
 import { createHmac } from 'node:crypto';
 
 const servers: ReturnType<typeof createRendezvousServer>[] = [];
 
-async function startServer(options: any = {}) {
+async function startServer(options: unknown = {}) {
   const server = createRendezvousServer({
     turnSecret: 'fake-secret',
     turnUrls: ['turn:test.local:3478'],

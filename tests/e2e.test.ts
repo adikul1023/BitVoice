@@ -1,3 +1,4 @@
+ 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createDirectCall, CallState, SignalPayload } from '../packages/webrtc/src/index';
@@ -17,7 +18,7 @@ describe('End-to-End Signaling and Handshake', () => {
 
   async function createPeer(name: string, mailboxId: string, peerMailboxId: string, timeOffset = 0) {
     const { webcrypto } = await import('node:crypto');
-    const subtle = webcrypto.subtle as any;
+    const subtle = webcrypto.subtle as unknown;
     const signingPair = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']) as CryptoKeyPair;
     const messageKey = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
     return { name, mailboxId, peerMailboxId, signingPair, messageKey, keyId: randomId(16) };
@@ -25,7 +26,7 @@ describe('End-to-End Signaling and Handshake', () => {
 
   function setupNetwork() {
     const mailboxes = new Map<string, any[]>();
-    const put = async (mailboxId: string, msg: any) => {
+    const put = async (mailboxId: string, msg: unknown) => {
       const msgs = mailboxes.get(mailboxId) || [];
       msgs.push(msg);
       mailboxes.set(mailboxId, msgs);
@@ -43,10 +44,10 @@ describe('End-to-End Signaling and Handshake', () => {
     const bobData = await createPeer('bob', 'bob-box', 'alice-box');
     const network = setupNetwork();
 
-    const resolveKey = (target: any) => async (keyId: string) => keyId === target.keyId ? target.signingPair.publicKey : undefined;
+    const resolveKey = (target: unknown) => async (keyId: string) => keyId === target.keyId ? target.signingPair.publicKey : undefined;
 
     const { webcrypto } = await import('node:crypto');
-    const subtle = webcrypto.subtle as any;
+    const subtle = webcrypto.subtle as unknown;
     
     const aliceStatic = await subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']) as CryptoKeyPair;
     const bobStatic = await subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']) as CryptoKeyPair;
@@ -81,17 +82,17 @@ describe('End-to-End Signaling and Handshake', () => {
     });
 
     const createChallenge = async () => {
-      return { type: 'CALL_FINISH_CHALLENGE', challenge: randomId(32) } as any;
+      return { type: 'CALL_FINISH_CHALLENGE', challenge: randomId(32) } as unknown;
     };
 
-    const createFinish = (signaling: any, keyPair: any, role: string) => async (challengeMsg: any) => {
+    const createFinish = (signaling: unknown, keyPair: unknown, role: string) => async (challengeMsg: unknown) => {
       const callId = signaling.activeCallId;
       const transcript = new TextEncoder().encode(`SecureVoice CALL_FINISH v2|${callId}|${role}|${challengeMsg.challenge}`);
       const signature = await sign(keyPair.privateKey, transcript);
       return { type: 'CALL_FINISH', signature: encodeBase64Url(new Uint8Array(signature)) };
     };
 
-    const verifyFinish = (signaling: any, expectedRole: string, peerPublicKey: CryptoKey) => async (msg: any, challengeMsg: any) => {
+    const verifyFinish = (signaling: unknown, expectedRole: string, peerPublicKey: CryptoKey) => async (msg: unknown, challengeMsg: unknown) => {
       const callId = signaling.activeCallId;
       const expectedTranscript = new TextEncoder().encode(`SecureVoice CALL_FINISH v2|${callId}|${expectedRole}|${challengeMsg.challenge}`);
       try {
@@ -122,17 +123,17 @@ describe('End-to-End Signaling and Handshake', () => {
     });
 
     const wireDataChannel = async () => {
-      const a = (alice.peerConnection as any)?.dataChannel;
-      const b = (bob.peerConnection as any)?.dataChannel;
+      const a = (alice.peerConnection as unknown)?.dataChannel;
+      const b = (bob.peerConnection as unknown)?.dataChannel;
       if (a && b) {
         // Trigger ondatachannel on the receiver (Bob) since FakePeerConnection doesn't do it natively
-        if (!(bob.peerConnection as any)._dataChannelInitialized) {
-            (bob.peerConnection as any).ondatachannel?.({ channel: b });
-            (bob.peerConnection as any)._dataChannelInitialized = true;
+        if (!(bob.peerConnection as unknown)._dataChannelInitialized) {
+            (bob.peerConnection as unknown).ondatachannel?.({ channel: b });
+            (bob.peerConnection as unknown)._dataChannelInitialized = true;
         }
         
-        a.send = (msg: any) => b.onmessage?.({ data: msg });
-        b.send = (msg: any) => a.onmessage?.({ data: msg });
+        a.send = (msg: unknown) => b.onmessage?.({ data: msg });
+        b.send = (msg: unknown) => a.onmessage?.({ data: msg });
         for (const m of a.sent || []) a.send(m);
         for (const m of b.sent || []) b.send(m);
         // Give the async message handlers a tick to resolve
@@ -162,18 +163,18 @@ describe('End-to-End Signaling and Handshake', () => {
 
     await aliceSignaling.receive(async (payload) => {
       if (payload.signal && 'type' in payload.signal && payload.signal.type === 'answer') {
-        await alice.receiveAnswer(payload as any);
+        await alice.receiveAnswer(payload as unknown);
       } else if (payload.signal && 'candidate' in payload.signal) {
-        await alice.receiveIceCandidate(payload as any);
+        await alice.receiveIceCandidate(payload as unknown);
       }
     });
 
     await wireDataChannel();
-    (alice.peerConnection as any)._connect();
-    (bob.peerConnection as any)._connect();
+    (alice.peerConnection as unknown)._connect();
+    (bob.peerConnection as unknown)._connect();
     
-    (alice.peerConnection as any).dataChannel.onopen?.();
-    (bob.peerConnection as any).dataChannel.onopen?.();
+    (alice.peerConnection as unknown).dataChannel.onopen?.();
+    (bob.peerConnection as unknown).dataChannel.onopen?.();
 
     await new Promise(r => setTimeout(r, 50));
 
@@ -185,7 +186,7 @@ describe('End-to-End Signaling and Handshake', () => {
     const { alice, bob, aliceSignaling, bobSignaling } = await setupAliceAndBob();
     const offer = await alice.startOutgoing();
     await bobSignaling.receive(async (payload) => {
-      await bob.receiveOffer(payload as any);
+      await bob.receiveOffer(payload as unknown);
     });
     expect(bob.state).toBe('incoming-review');
 
@@ -197,13 +198,13 @@ describe('End-to-End Signaling and Handshake', () => {
     const { alice, bob, aliceSignaling, bobSignaling } = await setupAliceAndBob();
     await alice.startOutgoing();
     await bobSignaling.receive(async (payload) => {
-      await bob.receiveOffer(payload as any);
+      await bob.receiveOffer(payload as unknown);
     });
     
     const answer = await bob.acceptIncoming();
     
     await aliceSignaling.receive(async (payload) => {
-      await alice.receiveAnswer(payload as any);
+      await alice.receiveAnswer(payload as unknown);
     });
     expect(alice.state).toBe('outgoing-connecting');
     
@@ -253,18 +254,18 @@ describe('End-to-End Signaling and Handshake', () => {
     // Simulate replay
     await expect(alice.receiveAnswer({ signal: { type: 'answer', sdp: 'fake' } })).rejects.toThrow('illegal call transition');
     await wireDataChannel();
-    (alice.peerConnection as any)._connect();
-    (bob.peerConnection as any)._connect();
+    (alice.peerConnection as unknown)._connect();
+    (bob.peerConnection as unknown)._connect();
 
-    (alice.peerConnection as any).dataChannel.onopen?.();
-    (bob.peerConnection as any).dataChannel.onopen?.();
+    (alice.peerConnection as unknown).dataChannel.onopen?.();
+    (bob.peerConnection as unknown).dataChannel.onopen?.();
 
     await new Promise(r => setTimeout(r, 50));
 
     expect(alice.state).toBe('connected');
     
     // Simulate re-receiving finish message on alice
-    const controlChannel = (alice.peerConnection as any)?.dataChannel;
+    const controlChannel = (alice.peerConnection as unknown)?.dataChannel;
     controlChannel.onmessage({ data: 'BOB_FINISH' });
     
     // Still connected, didn't crash
@@ -328,7 +329,7 @@ describe('End-to-End Signaling and Handshake', () => {
         // strictly checks it, but since bobSignaling hasn't started a call, it expects
         // an offer first, not an ICE candidate.
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       threwError = true;
     }
     

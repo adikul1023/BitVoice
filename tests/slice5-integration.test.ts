@@ -1,9 +1,10 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+ 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { createDirectCall, CallFinishChallenge, CallFinish } from '../packages/webrtc/src/index';
 import { installBrowserFakes, FakePeerConnection, FakeDataChannel } from './phase4.test';
 
-function createMockCall(configOpts: any = {}) {
+function createMockCall(configOpts: unknown = {}) {
   return createDirectCall({
     localKeyId: 'alice',
     remoteKeyId: 'bob',
@@ -26,9 +27,9 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     vi.useRealTimers();
   });
 
-  const getChannel = (call: any): FakeDataChannel => (call.peerConnection as any).dataChannel;
-  const setConnected = (call: any) => {
-    const pc = call.peerConnection as any;
+  const getChannel = (call: unknown): FakeDataChannel => (call.peerConnection as unknown).dataChannel;
+  const setConnected = (call: unknown) => {
+    const pc = call.peerConnection as unknown;
     pc.connectionState = 'connected';
     pc.onconnectionstatechange();
   };
@@ -52,12 +53,12 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'local-challenge' }));
     
     // Receive remote challenge
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as unknown);
     await Promise.resolve(); // wait for createFinish
     expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'CALL_FINISH', signature: 'local-signature' }));
     
     // Receive remote finish
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as unknown);
     await Promise.resolve(); // wait for verifyFinish
     
     expect(call.state).toBe('connected');
@@ -92,10 +93,10 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     channel.onopen();
     await Promise.resolve();
     
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as unknown);
     await Promise.resolve();
     
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as unknown);
     await Promise.resolve();
     
     expect(call.state).toBe('connected');
@@ -115,10 +116,10 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     channel.onopen();
     await Promise.resolve();
     
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as unknown);
     await Promise.resolve();
     
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as unknown);
     await Promise.resolve();
     
     expect(call.state).toBe('connected');
@@ -126,7 +127,7 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     const sendSpy = vi.spyOn(channel, 'send');
     
     // Duplicate challenge should not send finish again
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as unknown);
     await Promise.resolve();
     expect(sendSpy).not.toHaveBeenCalled();
     
@@ -135,8 +136,8 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     expect(call.state).toBe('ended');
     
     // Late message should not resurrect
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as any);
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as unknown);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as unknown);
     await Promise.resolve();
     expect(call.state).toBe('ended');
   });
@@ -152,7 +153,7 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     channel.onopen();
     await Promise.resolve();
     
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'bad-signature' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'bad-signature' }) } as unknown);
     await Promise.resolve();
     
     // Verify was called but failed
@@ -169,13 +170,13 @@ describe('Phase 4 Slice 5: CALL_FINISH DataChannel Integration', () => {
     const channel = getChannel(call);
     
     // Remote sends challenge before our onopen completes
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH_CHALLENGE', challenge: 'remote-challenge' }) } as unknown);
     
     // Our channel opens, we send challenge
     channel.onopen();
     await Promise.resolve(); // Wait for microtasks
     
-    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as any);
+    channel.onmessage({ data: JSON.stringify({ type: 'CALL_FINISH', signature: 'remote-signature' }) } as unknown);
     await Promise.resolve();
     
     expect(call.state).toBe('connected');

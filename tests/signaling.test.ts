@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest';
 import { createAuthenticatedSignaling, RendezvousClient, SignalingPayload } from '../packages/webrtc/src/signaling';
 import { ReplayGuard, encodeBase64Url } from '../packages/protocol/src/index';
 import { webcrypto } from 'node:crypto';
-const subtle = webcrypto.subtle as any;
+const subtle = webcrypto.subtle as unknown;
 
 function randomId(size: number): string {
   return encodeBase64Url(webcrypto.getRandomValues(new Uint8Array(size)));
@@ -102,7 +103,7 @@ describe('Authenticated Signaling Bridge', () => {
     const storedMessage = vi.mocked(rendezvous.put).mock.calls[0][1];
 
     rendezvous.get.mockResolvedValueOnce([storedMessage]);
-    const received: any[] = [];
+    const received: unknown[] = [];
     await bob.receive(async (payload) => { received.push(payload); });
 
     expect(received).toHaveLength(1);
@@ -199,7 +200,7 @@ describe('Authenticated Signaling Bridge', () => {
     const alice = await createTestSignaling(aliceSigning, aliceId, bobId, bobSigning.publicKey, rendezvous, 'caller', 0, aliceStatic, bobStatic.publicKey);
     const bob = await createTestSignaling(bobSigning, bobId, aliceId, aliceSigning.publicKey, rendezvous, 'recipient', 0, bobStatic, aliceStatic.publicKey);
 
-    const badPayload = { callId: randomId(16), signal: { type: 'unknown_type', sdp: '' } } as unknown as any;
+    const badPayload = { callId: randomId(16), signal: { type: 'unknown_type', sdp: '' } } as unknown as unknown;
     
     const cryptoModule = await import('@securevoice/crypto');
     const originalDecrypt = cryptoModule.decryptEnvelope;

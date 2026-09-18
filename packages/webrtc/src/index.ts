@@ -148,7 +148,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			if (!connection || state !== 'connected') return;
 			try {
 				const stats = await connection.getStats();
-				let selectedPair: any = undefined;
+				let selectedPair: Record<string, unknown> | undefined = undefined;
 				stats.forEach(report => {
 					if (report.type === 'candidate-pair' && report.nominated && report.state === 'succeeded') {
 						selectedPair = report;
@@ -168,7 +168,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 					if (statsInterval) clearInterval(statsInterval);
 					statsInterval = undefined;
 				}
-			} catch (e) {
+			} catch {
 				// ignore stats error
 			}
 		}, 2000);

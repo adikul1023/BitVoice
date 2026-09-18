@@ -1,3 +1,4 @@
+ 
 import { describe, expect, it } from 'vitest';
 import { acceptScannedArtifact, beginScan, cancelScan } from '../apps/web/src/pairing-flow';
 
