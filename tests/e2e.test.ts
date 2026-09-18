@@ -91,7 +91,7 @@ describe('End-to-End Signaling and Handshake', () => {
 
     const bob = createDirectCall({
       onSignal: async (payload) => {
-        if ('type' in payload.signal && payload.signal.type === 'offer') {
+        if ('type' in payload.signal && (payload.signal.type === 'offer' || payload.signal.type === 'answer')) {
           await bobSignaling.send(payload);
         }
       },
@@ -136,7 +136,6 @@ describe('End-to-End Signaling and Handshake', () => {
     expect(bob.state).toBe('incoming-review');
     
     const answer = await bob.acceptIncoming();
-    await bobSignaling.send({ callId: '123', signal: answer });
 
     await aliceSignaling.receive(async (payload) => {
       if (payload.signal && 'type' in payload.signal && payload.signal.type === 'answer') {
@@ -180,7 +179,6 @@ describe('End-to-End Signaling and Handshake', () => {
     });
     
     const answer = await bob.acceptIncoming();
-    await bobSignaling.send({ signal: answer });
     
     await aliceSignaling.receive(async (payload) => {
       await alice.receiveAnswer(payload as any);
@@ -222,9 +220,16 @@ describe('End-to-End Signaling and Handshake', () => {
   it('Edge case: CALL_FINISH replay', async () => {
     const { alice, bob, aliceSignaling, bobSignaling, wireDataChannel } = await setupAliceAndBob();
     await alice.startOutgoing();
-    await bob.receiveOffer({ signal: { type: 'offer', sdp: 'fake' } });
+    await bobSignaling.receive(async (payload) => {
+      await bob.receiveOffer(payload as any);
+    });
     await bob.acceptIncoming();
-    await alice.receiveAnswer({ signal: { type: 'answer', sdp: 'fake' } });
+    await aliceSignaling.receive(async (payload) => {
+      await alice.receiveAnswer(payload as any);
+    });
+    
+    // Simulate replay
+    await expect(alice.receiveAnswer({ signal: { type: 'answer', sdp: 'fake' } })).rejects.toThrow('illegal call transition');
     await wireDataChannel();
     (alice.peerConnection as any)._connect();
     (bob.peerConnection as any)._connect();

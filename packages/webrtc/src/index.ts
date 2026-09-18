@@ -133,7 +133,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 	return {
 		get state() { return state; },
 		get peerConnection() { return connection; },
-		get pendingOffer() { return pendingOffer; },
+		get pendingOffer() { return pendingOffer ? { ...pendingOffer } : undefined; },
 		async startOutgoing() {
 			move('prepare-outgoing');
 			await requestMicrophone();
@@ -177,12 +177,17 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 		},
 		async acceptIncoming() {
 			if (!pendingOffer) throw new Error('no incoming offer to accept');
+			const offer = pendingOffer;
+			pendingOffer = undefined;
 			move('accept-incoming');
-			await ensureConnection().setRemoteDescription(pendingOffer);
-			await requestMicrophone();
+			await requestMicrophone(); // calls ensureConnection() which creates RTCPeerConnection, then getUserMedia()
+			await ensureConnection().setRemoteDescription(offer);
 			const answer = await ensureConnection().createAnswer();
 			await ensureConnection().setLocalDescription(answer);
-			move('offer-sent');
+			
+			await config.onSignal({ signal: answer, privacyMode: config.privacyMode });
+			move('offer-sent'); // transitioning to incoming-connecting in the state machine
+			
 			for (const candidate of pendingCandidates) {
 				await ensureConnection().addIceCandidate(candidate).catch(() => {});
 			}
