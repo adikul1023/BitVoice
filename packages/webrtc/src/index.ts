@@ -190,7 +190,48 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 				void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode });
 			}
 		};
+		connection.onicecandidateerror = (event: any) => {
+			trace(`ICE candidate error: code=${event.errorCode} text=${event.errorText} url=${event.url}`);
+		};
+		connection.onsignalingstatechange = () => {
+			trace(`Signaling state changed to: ${connection?.signalingState}`);
+		};
+		connection.onicegatheringstatechange = () => {
+			trace(`ICE gathering state changed to: ${connection?.iceGatheringState}`);
+		};
+		connection.oniceconnectionstatechange = () => {
+			const iceState = connection?.iceConnectionState;
+			trace(`ICE connection state changed to: ${iceState}`);
+			if (iceState === 'checking' || iceState === 'connected' || iceState === 'completed' || iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed') {
+				trace(`ICE reached state: ${iceState}`);
+			}
+			if (iceState === 'failed' && connection) {
+				void connection.getStats().then(stats => {
+					let selectedPair: Record<string, unknown> | undefined = undefined;
+					stats.forEach(report => {
+						if (report.type === 'candidate-pair' && (report.nominated || report.state === 'failed' || report.state === 'in-progress')) {
+							if (!selectedPair || report.nominated) {
+								selectedPair = report;
+							}
+						}
+					});
+					if (selectedPair) {
+						const local = stats.get(selectedPair.localCandidateId as string);
+						const remote = stats.get(selectedPair.remoteCandidateId as string);
+						trace(`ICE Failure metadata:
+  pair state: ${selectedPair.state}
+  nominated: ${selectedPair.nominated}
+  local: ${local?.candidateType}
+  remote: ${remote?.candidateType}
+  protocol: ${local?.protocol}`);
+					} else {
+						trace('ICE Failure metadata: No candidate pair found');
+					}
+				}).catch(() => {});
+			}
+		};
 		connection.onconnectionstatechange = () => {
+			trace(`Connection state changed to: ${connection?.connectionState}`);
 			if (connection?.connectionState === 'connected') {
 				if (state === 'outgoing-connecting' || state === 'incoming-connecting') {
 					move('connection-established');
@@ -325,7 +366,11 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 				move('offer-sent'); // transitioning to incoming-connecting in the state machine
 				
 				for (const candidate of pendingCandidates) {
-					await ensureConnection().addIceCandidate(candidate).catch(() => {});
+					await ensureConnection().addIceCandidate(candidate).then(() => {
+						trace('addIceCandidate(buffered) succeeded');
+					}).catch((err) => {
+						trace(`addIceCandidate(buffered) failed: ${err.message}`);
+					});
 				}
 				pendingCandidates = [];
 				return answer;
@@ -375,7 +420,11 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			if (state !== 'outgoing-connecting' && state !== 'incoming-connecting' && state !== 'ice-connected') {
 				throw new Error('ICE candidate not expected in current call state');
 			}
-			await ensureConnection().addIceCandidate(init);
+			await ensureConnection().addIceCandidate(init).then(() => {
+				trace('addIceCandidate succeeded');
+			}).catch((err) => {
+				trace(`addIceCandidate failed: ${err.message}`);
+			});
 		},
 		async restartIce() {
 			if (iceRestartUsed || !connection || state !== 'outgoing-connecting') throw new Error('ICE restart unavailable');
