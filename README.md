@@ -19,6 +19,13 @@ npm run dev:rendezvous
 
 The web app runs at `http://localhost:5173`. The rendezvous service runs at `http://localhost:8787` and exposes `GET /healthz`.
 
+### Testing over the internet (ngrok)
+To test the P2P calling features between different networks (e.g. laptop to phone on cellular), you can use ngrok to tunnel the local servers:
+1. Start ngrok for the rendezvous service: `ngrok http 8787`
+2. Copy the resulting ngrok URL and update `VITE_RENDEZVOUS_URL` in `apps/web/.env`
+3. Start the servers: `npm run dev:rendezvous` and `npm run dev:web`
+4. Start ngrok for the web app: `ngrok http 5173`
+5. Open the web app ngrok URL on your testing devices.
 ## Verification
 
 ```sh
