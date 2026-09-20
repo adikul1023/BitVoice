@@ -165,11 +165,14 @@ export class SessionManager {
       // Decode the offer from the initial message using our signaling layer (which also ACKs it).
       this.trace('[inbound] calling receive() to decrypt offer...');
       let offerPayload: SignalPayload | undefined;
+      const initialCandidates: SignalPayload[] = [];
       await this.activeSignaling.receive(async (payload) => {
         const typeStr = 'type' in payload.signal ? payload.signal.type : 'candidate';
         this.trace(`[inbound] got payload type=${JSON.stringify(typeStr)}`);
         if (!offerPayload && payload.signal && 'type' in payload.signal && payload.signal.type === 'offer') {
           offerPayload = payload;
+        } else if (payload.signal && 'candidate' in payload.signal) {
+          initialCandidates.push(payload);
         }
       });
       this.trace(`[inbound] receive() done, offerPayload=${!!offerPayload}`);
@@ -184,6 +187,11 @@ export class SessionManager {
       this.trace('[inbound] calling receiveOffer()...');
       await this.activeCall.receiveOffer(offerPayload);
       this.trace('incoming offer received – notifying UI');
+
+      for (const candidate of initialCandidates) {
+        this.trace('ICE candidate received (from initial batch)');
+        await this.activeCall.receiveIceCandidate(candidate);
+      }
 
       this.config.onIncomingCall(caller,
         async (mediaPreferences) => {

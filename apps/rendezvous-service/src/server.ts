@@ -95,8 +95,8 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
         
         // 1 hour expiry
         const expiresAt = Math.floor(now() / 1000) + 3600;
-        const username = `${expiresAt}:${randomBytes(8).toString('hex')}`;
-        const credential = createHmac('sha1', options.turnSecret!).update(username).digest('base64');
+        const username = options.turnSecret === 'openrelayproject' ? 'openrelayproject' : `${expiresAt}:${randomBytes(8).toString('hex')}`;
+        const credential = options.turnSecret === 'openrelayproject' ? 'openrelayproject' : createHmac('sha1', options.turnSecret!).update(username).digest('base64');
         
         writeJson(response, 200, {
           expiresAt: expiresAt * 1000,

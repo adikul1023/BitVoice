@@ -148,7 +148,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			if (!connection || state !== 'connected') return;
 			try {
 				const stats = await connection.getStats();
-				let selectedPair: Record<string, unknown> | undefined = undefined;
+				let selectedPair: any = undefined;
 				stats.forEach(report => {
 					if (report.type === 'candidate-pair' && report.nominated && report.state === 'succeeded') {
 						selectedPair = report;
@@ -207,7 +207,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			}
 			if (iceState === 'failed' && connection) {
 				void connection.getStats().then(stats => {
-					let selectedPair: Record<string, unknown> | undefined = undefined;
+					let selectedPair: any = undefined;
 					stats.forEach(report => {
 						if (report.type === 'candidate-pair' && (report.nominated || report.state === 'failed' || report.state === 'in-progress')) {
 							if (!selectedPair || report.nominated) {
