@@ -5,6 +5,11 @@
     "jsx": "react-jsx",
     "outDir": "dist/types"
   },
-  "references": [{ "path": "../../packages/crypto" }],
+  "references": [
+    { "path": "../../packages/crypto" },
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/webrtc" },
+    { "path": "../../packages/ui" }
+  ],
   "include": ["src"]
 }
