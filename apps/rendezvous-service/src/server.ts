@@ -69,6 +69,8 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
   const store = options.store ?? new RendezvousStore();
   const now = options.now ?? Date.now;
 
+  const turnRateLimits = new Map<string, number[]>();
+
   return createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? '/', 'http://localhost');
@@ -93,8 +95,21 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
           return;
         }
         
-        // 1 hour expiry
-        const expiresAt = Math.floor(now() / 1000) + 3600;
+        const ip = (request.headers['x-forwarded-for'] as string || '').split(',')[0].trim() || request.socket.remoteAddress || 'unknown';
+        const currentTime = now();
+        const timestamps = turnRateLimits.get(ip) || [];
+        const recentTimestamps = timestamps.filter(t => currentTime - t < 60000); // 1 minute window
+        
+        if (recentTimestamps.length >= 5) {
+          response.writeHead(429, { 'content-type': 'application/json', 'cache-control': 'no-store', 'retry-after': '60', ...corsHeaders });
+          response.end(JSON.stringify({ error: 'too-many-requests' }));
+          return;
+        }
+        recentTimestamps.push(currentTime);
+        turnRateLimits.set(ip, recentTimestamps);
+
+        // 15 minute expiry
+        const expiresAt = Math.floor(currentTime / 1000) + 900;
         const username = options.turnSecret === 'openrelayproject' ? 'openrelayproject' : `${expiresAt}:${randomBytes(8).toString('hex')}`;
         const credential = options.turnSecret === 'openrelayproject' ? 'openrelayproject' : createHmac('sha1', options.turnSecret!).update(username).digest('base64');
         

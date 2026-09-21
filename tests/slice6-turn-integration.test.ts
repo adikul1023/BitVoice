@@ -1,5 +1,5 @@
  
-/* eslint-disable @typescript-eslint/no-unused-vars, prefer-const */
+/* eslint-disable prefer-const */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createDirectCall } from '../packages/webrtc/src/index.js';
 import { createRendezvousTurnProvider } from '../packages/webrtc/src/turn.js';
@@ -14,14 +14,30 @@ describe('Slice 6: TURN / Relay Integration', () => {
 		installBrowserFakes();
 	});
 
-	it('1. Direct mode uses iceTransportPolicy === "all"', async () => {
+	it('1. Direct mode uses iceTransportPolicy === "all" and includes TURN if available', async () => {
+		const turnProvider = vi.fn().mockResolvedValue([{ urls: ['turn:test'] }]);
 		const call = createDirectCall({
 			localKeyId: 'a', remoteKeyId: 'b',
 			privacyMode: 'direct-preferred',
+			turnProvider,
 			onSignal: async () => {}
 		});
 		await call.startOutgoing();
 		const config = (call.peerConnection as unknown)?.config;
+		expect(config.iceTransportPolicy).toBe('all');
+		expect(config.iceServers).toEqual([{ urls: ['turn:test'] }]);
+		expect(turnProvider).toHaveBeenCalled();
+	});
+
+	it('1b. private-relay-only fails if turnProvider is undefined', async () => {
+		const call = createDirectCall({
+			localKeyId: 'a', remoteKeyId: 'b',
+			privacyMode: 'private-relay-only',
+			turnProvider: undefined, // Explicitly missing
+			onSignal: async () => {}
+		});
+		await expect(call.startOutgoing()).rejects.toThrow('private-relay-only mode requires a turnProvider');
+		expect(call.peerConnection).toBeUndefined();
 	});
 
 	it('2. Relay-only mode uses iceTransportPolicy === "relay"', async () => {
@@ -86,6 +102,9 @@ describe('Slice 6: TURN / Relay Integration', () => {
 			{ payload: { iceServers: [{ urls: ['http:wrong-scheme'] }] }, error: 'Invalid ICE server url scheme: http:wrong-scheme' },
 			{ payload: { iceServers: [{ urls: ['turn:ok'], username: 123, credential: 'c' }] }, error: 'Invalid or missing ICE server username' },
 			{ payload: { iceServers: [{ urls: ['turn:ok'], username: 'u', credential: 123 }] }, error: 'Invalid or missing ICE server credential' },
+			{ payload: { iceServers: [{ urls: ['turn:ok'], username: 'u'.repeat(300), credential: 'c' }] }, error: 'Invalid or missing ICE server username' },
+			{ payload: { iceServers: [{ urls: ['turn:ok'], username: 'u', credential: 'c'.repeat(300) }] }, error: 'Invalid or missing ICE server credential' },
+			{ payload: { iceServers: [{ urls: ['stun:ok'], username: 'u', credential: 'c' }] }, error: 'Invalid ICE server url scheme: stun:ok' },
 		];
 
 		for (const tc of testCases) {
@@ -177,5 +196,36 @@ describe('Slice 6: TURN / Relay Integration', () => {
 		await new Promise(r => setTimeout(r, 10));
 
 		expect(onStateChange).toHaveBeenCalledWith('connected');
+	});
+
+	it('11. Sequential relay -> direct calls do not retain old ICE configuration', async () => {
+		// Call 1: Relay
+		const turnProvider1 = vi.fn().mockResolvedValue([{ urls: ['turn:relay1'] }]);
+		const call1 = createDirectCall({
+			localKeyId: 'a', remoteKeyId: 'b',
+			privacyMode: 'private-relay-only',
+			turnProvider: turnProvider1,
+			onSignal: async () => {}
+		});
+		await call1.startOutgoing();
+		const config1 = (call1.peerConnection as unknown)?.config;
+		expect(config1.iceTransportPolicy).toBe('relay');
+		expect(config1.iceServers).toEqual([{ urls: ['turn:relay1'] }]);
+		await call1.end();
+
+		// Call 2: Direct
+		const turnProvider2 = vi.fn().mockResolvedValue([{ urls: ['turn:fallback1'] }]);
+		const call2 = createDirectCall({
+			localKeyId: 'a', remoteKeyId: 'b',
+			privacyMode: 'direct-preferred',
+			turnProvider: turnProvider2,
+			stunServers: ['stun:google'],
+			onSignal: async () => {}
+		});
+		await call2.startOutgoing();
+		const config2 = (call2.peerConnection as unknown)?.config;
+		expect(config2.iceTransportPolicy).toBe('all');
+		expect(config2.iceServers).toEqual([{ urls: ['turn:fallback1'] }, { urls: ['stun:google'] }]);
+		await call2.end();
 	});
 });

@@ -137,9 +137,14 @@ export class SessionManager {
       });
       this.trace('[inbound] signaling created');
 
+      const turnProvider = this.config.turnAuthToken
+        ? createRendezvousTurnProvider(this.config.rendezvousUrl, this.config.turnAuthToken)
+        : undefined;
+
       const callConfig: DirectCallConfig = {
         localKeyId: this.config.identity.keyId,
         remoteKeyId: caller.contactId,
+        turnProvider,
         stunServers: ['stun:stun.l.google.com:19302'],
         onSignal: async (payload: SignalPayload) => {
           if ('type' in payload.signal && payload.signal.type === 'answer') this.trace('answer generated');
@@ -234,7 +239,7 @@ export class SessionManager {
 
     const remoteStatic = await importAgreementPublicKey(contact.agreementPublicJwk);
 
-    const turnProvider = privacyMode === 'private-relay-only' && this.config.turnAuthToken
+    const turnProvider = this.config.turnAuthToken
       ? createRendezvousTurnProvider(this.config.rendezvousUrl, this.config.turnAuthToken)
       : undefined;
 

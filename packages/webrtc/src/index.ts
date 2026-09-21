@@ -148,15 +148,17 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			if (!connection || state !== 'connected') return;
 			try {
 				const stats = await connection.getStats();
-				let selectedPair: any = undefined;
+				let selectedPair: Record<string, unknown> | undefined = undefined;
 				stats.forEach(report => {
-					if (report.type === 'candidate-pair' && report.nominated && report.state === 'succeeded') {
-						selectedPair = report;
+					const r = report as Record<string, unknown>;
+					if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+						selectedPair = r;
 					}
 				});
 				if (selectedPair) {
-					const local = stats.get(selectedPair.localCandidateId);
-					const remote = stats.get(selectedPair.remoteCandidateId);
+					const p = selectedPair as Record<string, unknown>;
+					const local = stats.get(p.localCandidateId as string);
+					const remote = stats.get(p.remoteCandidateId as string);
 					if (local && remote) {
 						const isRelay = local.candidateType === 'relay' || remote.candidateType === 'relay';
 						trace(`Selected candidate pair:
@@ -190,8 +192,9 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 				void config.onSignal({ signal: event.candidate.toJSON(), privacyMode: config.privacyMode });
 			}
 		};
-		connection.onicecandidateerror = (event: any) => {
-			trace(`ICE candidate error: code=${event.errorCode} text=${event.errorText} url=${event.url}`);
+		connection.onicecandidateerror = (event: Event | RTCPeerConnectionIceErrorEvent) => {
+			const errEvent = event as RTCPeerConnectionIceErrorEvent;
+			trace(`ICE candidate error: code=${errEvent.errorCode} text=${errEvent.errorText} url=${errEvent.url}`);
 		};
 		connection.onsignalingstatechange = () => {
 			trace(`Signaling state changed to: ${connection?.signalingState}`);
@@ -207,20 +210,22 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			}
 			if (iceState === 'failed' && connection) {
 				void connection.getStats().then(stats => {
-					let selectedPair: any = undefined;
+					let selectedPair: Record<string, unknown> | undefined = undefined;
 					stats.forEach(report => {
-						if (report.type === 'candidate-pair' && (report.nominated || report.state === 'failed' || report.state === 'in-progress')) {
-							if (!selectedPair || report.nominated) {
-								selectedPair = report;
+						const r = report as Record<string, unknown>;
+						if (r.type === 'candidate-pair' && (r.nominated || r.state === 'failed' || r.state === 'in-progress')) {
+							if (!selectedPair || r.nominated) {
+								selectedPair = r;
 							}
 						}
 					});
 					if (selectedPair) {
-						const local = stats.get(selectedPair.localCandidateId as string);
-						const remote = stats.get(selectedPair.remoteCandidateId as string);
+						const p = selectedPair as Record<string, unknown>;
+						const local = stats.get(p.localCandidateId as string);
+						const remote = stats.get(p.remoteCandidateId as string);
 						trace(`ICE Failure metadata:
-  pair state: ${selectedPair.state}
-  nominated: ${selectedPair.nominated}
+  pair state: ${p.state}
+  nominated: ${p.nominated}
   local: ${local?.candidateType}
   remote: ${remote?.candidateType}
   protocol: ${local?.protocol}`);
