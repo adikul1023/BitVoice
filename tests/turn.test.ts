@@ -66,4 +66,42 @@ describe('TURN credential endpoint', () => {
     expect(() => createRendezvousServer({ turnUrls: undefined })).toThrow('Missing TURN configuration');
     expect(() => createRendezvousServer({ turnAuthToken: '' })).toThrow('Missing TURN configuration');
   });
+
+  it('enforces 5 requests per minute rate limit per IP', async () => {
+    // We override 'now' so we can control time
+    let currentTime = 1000000;
+    const baseUrl = await startServer({ now: () => currentTime });
+    
+    // Send 5 successful requests from IP 1
+    for (let i = 0; i < 5; i++) {
+      const res = await fetch(`${baseUrl}/v1/turn`, { 
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer valid-token', 'X-Forwarded-For': '192.168.1.1' }
+      });
+      expect(res.status).toBe(200);
+    }
+    
+    // 6th request fails with 429
+    const res6 = await fetch(`${baseUrl}/v1/turn`, { 
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer valid-token', 'X-Forwarded-For': '192.168.1.1' }
+    });
+    expect(res6.status).toBe(429);
+    expect(res6.headers.get('retry-after')).toBe('60');
+
+    // A different IP is still allowed
+    const resOther = await fetch(`${baseUrl}/v1/turn`, { 
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer valid-token', 'X-Forwarded-For': '192.168.1.2' }
+    });
+    expect(resOther.status).toBe(200);
+
+    // After 60 seconds (60000ms), the first IP is allowed again
+    currentTime += 60001;
+    const resReset = await fetch(`${baseUrl}/v1/turn`, { 
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer valid-token', 'X-Forwarded-For': '192.168.1.1' }
+    });
+    expect(resReset.status).toBe(200);
+  });
 });

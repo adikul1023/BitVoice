@@ -70,8 +70,17 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
   const now = options.now ?? Date.now;
 
   const turnRateLimits = new Map<string, number[]>();
+  const rateLimitPruneInterval = setInterval(() => {
+    const currentTime = now();
+    for (const [ip, timestamps] of turnRateLimits.entries()) {
+      const recent = timestamps.filter(t => currentTime - t < 60000);
+      if (recent.length === 0) turnRateLimits.delete(ip);
+      else turnRateLimits.set(ip, recent);
+    }
+  }, 60000);
+  rateLimitPruneInterval.unref?.();
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? '/', 'http://localhost');
 
@@ -160,6 +169,14 @@ export function createRendezvousServer(options: ServerOptions = {}): Server {
       writeJson(response, 400, { error: 'invalid-request' });
     }
   });
+
+  const originalClose = server.close.bind(server);
+  server.close = (callback?: (err?: Error) => void) => {
+    clearInterval(rateLimitPruneInterval);
+    return originalClose(callback);
+  };
+
+  return server;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
