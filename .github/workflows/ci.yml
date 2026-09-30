@@ -44,6 +44,11 @@ jobs:
           debug: true
           script: |
             set -ex
+
+            # Load NVM environment so node, npm, and pm2 are available
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
             cd ~/BitVoice
 
             echo "── Pulling latest code ──"
