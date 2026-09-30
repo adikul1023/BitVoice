@@ -20,10 +20,10 @@ jobs:
         with:
           node-version: 22.14.0
           cache: npm
-      - run: npm ci
+      - run: npm ci --loglevel verbose
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test
+      - run: npm test -- --reporter=verbose
       - run: npm run build
 
   deploy:
@@ -41,8 +41,9 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           port: 22
+          debug: true
           script: |
-            set -e
+            set -ex
             cd ~/BitVoice
 
             echo "── Pulling latest code ──"
