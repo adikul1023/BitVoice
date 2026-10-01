@@ -37,7 +37,7 @@ export function PocHarness() {
 
     const mgr = new SessionManager({
       identity,
-      rendezvousUrl: import.meta.env.VITE_RENDEZVOUS_URL || 'http://localhost:8787',
+      rendezvousUrl: import.meta.env.VITE_RENDEZVOUS_URL || window.location.origin,
       turnAuthToken: import.meta.env.VITE_TURN_AUTH_TOKEN,
       onIncomingCall: (caller, accept, reject) => {
         setIncomingCaller(caller);
