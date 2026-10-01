@@ -8,13 +8,13 @@
     "typecheck": "tsc --build"
   },
   "dependencies": {
-    "@securevoice/ui": "*",
     "@securevoice/crypto": "*",
     "@securevoice/protocol": "*",
+    "@securevoice/ui": "*",
     "@securevoice/webrtc": "*",
     "qr-scanner": "^1.4.2",
     "qrcode.react": "^4.2.0",
-    "react": "^19.3.0",
+    "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }
 }
