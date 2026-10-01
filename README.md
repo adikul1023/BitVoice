@@ -90,24 +90,21 @@ PORT=8787
 
 **Frontend (`apps/web/.env`):**
 ```env
-VITE_RENDEZVOUS_URL=http://localhost:8787
+# Leave VITE_RENDEZVOUS_URL empty to use Vite's automatic proxy
+VITE_RENDEZVOUS_URL=
 VITE_TURN_AUTH_TOKEN=local-dev-token
 ```
-*(To connect your local frontend to the live EC2 backend, replace `localhost` in `apps/web/.env` with your EC2 public IP).*
 
 ---
 
 ## 🌐 Testing Over the Internet (ngrok / Live EC2)
 
-To test the P2P calling features between different networks (e.g. laptop to phone on cellular):
+To test P2P calling features between different networks (e.g. laptop to phone on cellular):
 
-1. **Option A (Live EC2 Backend):** Point `VITE_RENDEZVOUS_URL` in `apps/web/.env` to `http://<YOUR_EC2_PUBLIC_IP>:8787`.
-2. **Option B (ngrok tunnel):**
-   - Start ngrok for the rendezvous service: `ngrok http 8787`
-   - Copy the resulting ngrok URL and update `VITE_RENDEZVOUS_URL` in `apps/web/.env`
-   - Start the servers: `npm run dev:rendezvous` and `npm run dev:web`
-   - Start ngrok for the web app: `ngrok http 5173`
-   - Open the web app ngrok URL on your testing devices.
+1. **Start Vite Frontend:** `npm run dev:web`
+2. **Start ngrok Tunnel:** `ngrok http 5173 --url https://your-custom-ngrok-domain.ngrok-free.dev`
+3. **Open Tunnel URL:** Open `https://your-custom-ngrok-domain.ngrok-free.dev` on both devices and click **"Visit Site"**.
+   - *Vite's built-in proxy in `vite.config.ts` automatically forwards all `/v1` signaling requests seamlessly to your live EC2 backend without browser Mixed-Content blocks.*
 
 ---
 
