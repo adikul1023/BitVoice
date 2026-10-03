@@ -80,15 +80,19 @@ export class SessionManager {
       try {
         const parsed = parseEncodedEnvelope(msg.ciphertext);
         const contact = await this.config.resolveContact(parsed.header.senderKeyId);
-        if (!contact) return; // Unknown contact
+        if (!contact) {
+          this.trace(`[inbound] unknown sender ${parsed.header.senderKeyId.slice(0, 8)}… — not in contacts, ignoring`);
+          return;
+        }
 
         if (parsed.header.type === 'call-offer') {
           this.trace('incoming offer received');
           // Start a new inbound session
           await this.setupInboundCall(contact);
         }
-      } catch {
-        // invalid envelope
+      } catch (e) {
+        const msg2 = e instanceof Error ? e.message : String(e);
+        this.trace(`[inbound] envelope parse error: ${msg2}`);
       }
     }
   }
@@ -243,7 +247,10 @@ export class SessionManager {
       ? createRendezvousTurnProvider(this.config.rendezvousUrl, this.config.turnAuthToken)
       : undefined;
 
-    this.activeSignaling = createAuthenticatedSignaling({
+    // Create signaling and call together to prevent a race condition where
+    // pollLoop() sees activeSignaling=set but activeCall=undefined and
+    // falls into the idle-poll branch for up to 10 seconds.
+    const signalingInstance = createAuthenticatedSignaling({
       mailboxId: this.config.identity.keyId,
       outboxId: contact.contactId,
       senderKeyId: this.config.identity.keyId,
@@ -259,7 +266,7 @@ export class SessionManager {
       replayGuard: this.replayGuard,
     });
 
-    this.activeCall = createDirectCall({
+    const callInstance = createDirectCall({
       localKeyId: this.config.identity.keyId,
       remoteKeyId: contact.contactId,
       privacyMode,
@@ -268,19 +275,46 @@ export class SessionManager {
       onSignal: async (payload) => {
         if ('type' in payload.signal && payload.signal.type === 'offer') this.trace('offer generated');
         if ('candidate' in payload.signal) this.trace('ICE candidate sent');
-        await this.activeSignaling!.send(payload);
-        if ('type' in payload.signal && payload.signal.type === 'offer') this.trace('offer delivered');
+        try {
+          await this.activeSignaling!.send(payload);
+          if ('type' in payload.signal && payload.signal.type === 'offer') this.trace('offer delivered');
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          this.trace(`signal send failed: ${errMsg}`);
+          throw e;
+        }
       },
       onStateChange: (state) => {
         this.trace(state);
         this.config.onCallStateChange(state);
+        if (state === 'ended' || state === 'idle') {
+          this.activeCall = undefined;
+          this.activeSignaling = undefined;
+        }
       },
       mediaPreferences,
       onLocalStream: this.config.onLocalStream,
       onRemoteStream: this.config.onRemoteStream
     });
 
-    await this.activeCall.startOutgoing();
+    // Assign atomically — prevents pollLoop race condition
+    this.activeSignaling = signalingInstance;
+    this.activeCall = callInstance;
+
+    try {
+      // 15-second timeout prevents permanent stuck state at outgoing-rendezvous
+      await Promise.race([
+        this.activeCall.startOutgoing(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('offer timed out after 15s — check network/rendezvous')), 15000)
+        ),
+      ]);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      this.trace(`dial error: ${errMsg}`);
+      await this.endCall(false);
+      throw e;
+    }
   }
 
   async endCall(sendRollback = true) {

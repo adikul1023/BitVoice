@@ -16,4 +16,11 @@ export default defineConfig({
       },
     },
   },
+  resolve: {
+    alias: {
+      '@securevoice/webrtc/signaling': '/home/m4lwhere/tmp/BitVoice/packages/webrtc/src/signaling.ts',
+      '@securevoice/webrtc/turn': '/home/m4lwhere/tmp/BitVoice/packages/webrtc/src/turn.ts',
+      '@securevoice/webrtc': '/home/m4lwhere/tmp/BitVoice/packages/webrtc/src/index.ts'
+    }
+  }
 });

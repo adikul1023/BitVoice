@@ -76,6 +76,7 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
   let currentCallId: string | undefined;
   let remoteEphemeralPublicKeyBase64: string | undefined;
   let activeSessionKeys: SessionKeys | undefined;
+  let preAnswerSessionKeys: SessionKeys | undefined;
 
   /**
    * Key derivation strategy:
@@ -105,16 +106,22 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
         return activeSessionKeys;
       }
       // Sending offer/ICE (pre-answer) OR receiving offer: use static-key derivation (not cached).
+      if (preAnswerSessionKeys) return preAnswerSessionKeys;
       const secret = await deriveSharedSecret(config.localEphemeralKeyPair.privateKey, config.remoteStaticAgreementPublicKey);
-      return deriveSessionKeys(secret, header.callId!, config.role);
+      preAnswerSessionKeys = await deriveSessionKeys(secret, header.callId!, config.role);
+      return preAnswerSessionKeys;
     } else {
       // recipient role
+      if (!remoteEphemeralPublicKeyBase64 && header.ephemeralPublicKey) {
+        remoteEphemeralPublicKeyBase64 = header.ephemeralPublicKey;
+      }
+
       if (header.type === 'call-offer') {
         // Receiving the offer: use static-key derivation (not cached).
-        remoteEphemeralPublicKeyBase64 = header.ephemeralPublicKey;
         const remoteEphKey = await importAgreementPublicKeyRaw(decodeBase64Url(remoteEphemeralPublicKeyBase64!));
         const secret = await deriveSharedSecret(config.localStaticAgreementPrivateKey, remoteEphKey);
-        return deriveSessionKeys(secret, header.callId!, config.role);
+        preAnswerSessionKeys = await deriveSessionKeys(secret, header.callId!, config.role);
+        return preAnswerSessionKeys;
       }
       if (!remoteEphemeralPublicKeyBase64) throw new Error('Missing remote ephemeral key');
       const remoteEphKey = await importAgreementPublicKeyRaw(decodeBase64Url(remoteEphemeralPublicKeyBase64));
@@ -126,8 +133,10 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
       }
       // Receiving ICE from caller before answer has been sent: use same static-key as the offer.
       // (Caller encrypted these with caller_eph_priv × callee_static_pub = callee_static_priv × caller_eph_pub)
+      if (preAnswerSessionKeys) return preAnswerSessionKeys;
       const secret = await deriveSharedSecret(config.localStaticAgreementPrivateKey, remoteEphKey);
-      return deriveSessionKeys(secret, header.callId!, config.role);  // not cached
+      preAnswerSessionKeys = await deriveSessionKeys(secret, header.callId!, config.role);
+      return preAnswerSessionKeys;
     }
   }
 
@@ -161,6 +170,7 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
 
     async receive(onPayload: (payload: WebrtcSignalPayload, sourceCallId: string) => Promise<void>, waitSeconds = 0): Promise<void> {
       const messages = await config.rendezvous.get(config.mailboxId, waitSeconds);
+      const acks: Promise<void>[] = [];
       for (const message of messages) {
         try {
           const envelope = await verifyEnvelope(message.ciphertext, config.resolveSenderKey, config.replayGuard, now());
@@ -177,15 +187,16 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
           if (payload.callId !== envelope.header.callId || !payload.signal || (!signalIsCandidate && !signalHasDescription)) throw new Error('invalid signaling payload');
           
           await onPayload({ signal: payload.signal, privacyMode: payload.privacyMode }, payload.callId);
-          await config.rendezvous.ack(config.mailboxId, message.messageId);
+          acks.push(config.rendezvous.ack(config.mailboxId, message.messageId));
         } catch (error: unknown) {
           if ((error as Error)?.name === 'ReplayError') {
-            await config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {});
+            acks.push(config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {}));
             continue;
           }
           throw error;
         }
       }
+      await Promise.all(acks);
     },
   };
 }

@@ -3,6 +3,17 @@ import { SessionManager } from './session.js';
 import { loadIdentity, listContacts, type LocalIdentity, type Contact } from './identity.js';
 import type { CallState, MediaPreferences } from '@securevoice/webrtc';
 
+// ─── Responsive hook ──────────────────────────────────────────────────────────
+function useWindowWidth() {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handler = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return width;
+}
+
 declare global {
   interface ImportMeta {
     env: Record<string, string | undefined>;
@@ -91,7 +102,7 @@ function Avatar({ name, size = 56 }: { name: string; size?: number }) {
     width: size,
     height: size,
     borderRadius: '50%',
-    background: 'linear-gradient(135deg, #2D8CFF 0%, #1a5fc8 100%)',
+    background: '#2a6abf',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -99,7 +110,6 @@ function Avatar({ name, size = 56 }: { name: string; size?: number }) {
     fontWeight: 700,
     color: '#fff',
     flexShrink: 0,
-    boxShadow: `0 4px 16px rgba(45,140,255,0.28)`,
     fontFamily: font,
     letterSpacing: '-0.5px',
   };
@@ -111,16 +121,15 @@ function SecureBadge() {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 5,
-    background: 'rgba(52,168,83,0.15)',
-    border: '1px solid rgba(52,168,83,0.35)',
+    background: 'rgba(52,168,83,0.10)',
+    border: '1px solid rgba(52,168,83,0.22)',
     color: '#34A853',
     padding: '4px 10px',
     borderRadius: 20,
     fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: '0.06em',
+    fontWeight: 600,
+    letterSpacing: '0.05em',
     textTransform: 'uppercase',
-    backdropFilter: 'blur(8px)',
     fontFamily: font,
   };
   return <span style={s}><ShieldIcon /> End-to-End Encrypted</span>;
@@ -139,10 +148,10 @@ function ControlButton({ icon, label, onClick, active = false, danger = false, i
   const [hovered, setHovered] = useState(false);
 
   const iconBg: CSSProperties = danger
-    ? { background: hovered ? '#c93428' : colors.red, boxShadow: hovered ? `0 6px 20px ${colors.redGlow}` : `0 4px 14px ${colors.redGlow}`, borderRadius: 18, padding: '14px 20px' }
+    ? { background: hovered ? '#c93428' : colors.red, borderRadius: 18, padding: '14px 20px' }
     : active
-    ? { background: 'rgba(234,67,53,0.16)', border: '1px solid rgba(234,67,53,0.35)', color: colors.red, borderRadius: 18, padding: 12 }
-    : { background: hovered ? colors.bgControlBtnHover : colors.bgControlBtn, borderRadius: 18, padding: 12 };
+      ? { background: 'rgba(234,67,53,0.14)', border: '1px solid rgba(234,67,53,0.25)', color: colors.red, borderRadius: 18, padding: 12 }
+      : { background: hovered ? colors.bgControlBtnHover : colors.bgControlBtn, borderRadius: 18, padding: 12 };
 
   const btn: CSSProperties = {
     display: 'flex',
@@ -156,8 +165,7 @@ function ControlButton({ icon, label, onClick, active = false, danger = false, i
     padding: '4px 8px',
     minWidth: danger ? 80 : 68,
     borderRadius: 12,
-    transition: 'transform 0.2s ease',
-    transform: hovered ? 'translateY(-2px)' : 'none',
+    transition: 'background 0.15s ease',
     fontFamily: font,
   };
 
@@ -180,6 +188,9 @@ function ControlButton({ icon, label, onClick, active = false, danger = false, i
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function PocHarness() {
+  const w = useWindowWidth();
+  const isMobile = w < 600;
+  const isTablet = w < 900;
   const [identity, setIdentity] = useState<LocalIdentity>();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [session, setSession] = useState<SessionManager>();
@@ -188,6 +199,9 @@ export function PocHarness() {
   const [acceptFn, setAcceptFn] = useState<(media: MediaPreferences) => void>();
   const [rejectFn, setRejectFn] = useState<() => void>();
   const [accepting, setAccepting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [traces, setTraces] = useState<string[]>([]);
+  const traceEndRef = useRef<HTMLDivElement>(null);
 
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -250,7 +264,10 @@ export function PocHarness() {
           stream.addEventListener('removetrack', () => setRemoteHasVideo(stream.getVideoTracks().length > 0));
         }
       },
-      onTrace: (event) => console.log(event),
+      onTrace: (event) => {
+        console.log(event);
+        setTraces(prev => [...prev.slice(-199), event]);
+      },
       resolveContact: async (keyId) => {
         const c = await listContacts();
         return c.find(contact => contact.contactId === keyId);
@@ -260,12 +277,22 @@ export function PocHarness() {
     return () => mgr.stop();
   }, [identity]);
 
+  // Auto-scroll log panel to bottom on new traces
+  useEffect(() => {
+    traceEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [traces]);
+
   const startCall = async (contact: Contact, video: boolean) => {
     try {
       setIsMuted(false);
       setIsCameraOff(!video);
       await session?.dial(contact, 'direct-preferred', { audio: true, video });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      // Error is already traced inside session.ts dial() — no need to duplicate.
+      // Just reset the call state so the UI doesn't stay stuck at "Connecting…"
+      setCallState('none');
+    }
   };
 
   const handleEndCall = () => session?.endCall();
@@ -282,9 +309,68 @@ export function PocHarness() {
     overflow: 'hidden',
   };
 
+  // ── Shared Log Panel ─────────────────────────────────────────────
+  const logPanel = (
+    <div style={{
+      background: 'rgba(0,0,0,0.55)',
+      border: `1px solid ${colors.borderSubtle}`,
+      borderRadius: 12,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      maxHeight: 200,
+    }}>
+      <div style={{
+        padding: '8px 14px',
+        borderBottom: `1px solid ${colors.borderSubtle}`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: 'rgba(0,0,0,0.3)',
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: colors.textMuted, fontFamily: 'monospace' }}>
+          ⚡ Session Log
+        </span>
+        <button
+          onClick={() => setTraces([])}
+          style={{ background: 'transparent', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: 11, padding: '2px 6px', fontFamily: 'monospace' }}
+        >
+          clear
+        </button>
+      </div>
+      <div style={{
+        overflowY: 'auto',
+        flex: 1,
+        padding: '8px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+      }}>
+        {traces.length === 0 ? (
+          <span style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'monospace', fontStyle: 'italic' }}>Waiting for session events…</span>
+        ) : (
+          traces.map((t, i) => (
+            <span key={i} style={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              color: t.toLowerCase().includes('error') ? '#EA4335'
+                : t.toLowerCase().includes('connected') ? '#34A853'
+                  : t.toLowerCase().includes('answer') || t.toLowerCase().includes('offer') ? '#2D8CFF'
+                    : t.toLowerCase().includes('ice') ? '#FFC107'
+                      : colors.textSecondary,
+              lineHeight: 1.6,
+            }}>{t}</span>
+          ))
+        )}
+        <div ref={traceEndRef} />
+      </div>
+    </div>
+  );
+
   // ── Active Call View ───────────────────────────────────────────────
-  if (callState !== 'none') {
-    const isConnecting = callState.includes('connecting') || callState.includes('preparing') || callState.includes('rendezvous');
+  const isIncomingWaiting = callState === 'incoming-offer' || callState === 'incoming-review';
+  if (callState !== 'none' && !isIncomingWaiting) {
+    const isConnecting = callState.includes('connecting') || callState.includes('preparing') || callState.includes('rendezvous') || callState.includes('accepted');
 
     return (
       <div style={rootStyle}>
@@ -299,7 +385,7 @@ export function PocHarness() {
           <span style={{ color: colors.textSecondary, fontSize: 14, fontWeight: 500 }}>SecureVoice Meeting</span>
           {callState === 'connected' && (
             <span style={{ marginLeft: 'auto', color: colors.green, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.green, display: 'inline-block', boxShadow: `0 0 8px ${colors.green}` }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.green, display: 'inline-block' }} />
               Connected
             </span>
           )}
@@ -334,11 +420,11 @@ export function PocHarness() {
           {/* Local PiP */}
           {!isCameraOff && (
             <div style={{
-              position: 'absolute', top: 80, right: 24,
-              width: 240, aspectRatio: '16/9', borderRadius: 14,
+              position: 'absolute', top: isMobile ? 56 : 80, right: isMobile ? 10 : 24,
+              width: isMobile ? 120 : 240, aspectRatio: '16/9', borderRadius: isMobile ? 8 : 10,
               overflow: 'hidden',
-              boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
-              border: `2px solid ${colors.borderMid}`,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              border: `1px solid ${colors.borderMid}`,
               background: '#1a1a1a',
             }}>
               <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
@@ -349,8 +435,8 @@ export function PocHarness() {
 
         {/* Control Bar */}
         <div style={{
-          display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8,
-          padding: '18px 32px',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', gap: isMobile ? 4 : 8,
+          padding: isMobile ? '12px 16px' : '18px 32px',
           background: colors.bgControl,
           borderTop: `1px solid ${colors.borderSubtle}`,
           backdropFilter: 'blur(20px)',
@@ -359,6 +445,11 @@ export function PocHarness() {
           <ControlButton id="poc-video-btn" icon={isCameraOff ? <VideoOffIcon /> : <VideoIcon />} label={isCameraOff ? 'Start Video' : 'Stop Video'} onClick={handleToggleCamera} active={isCameraOff} />
           <div style={{ width: 1, height: 40, background: colors.borderSubtle, margin: '0 4px' }} />
           <ControlButton id="poc-end-call-btn" icon={<PhoneOffIcon />} label="End" onClick={handleEndCall} danger />
+        </div>
+
+        {/* Log panel during call */}
+        <div style={{ padding: '0 24px 16px', background: colors.bgControl, backdropFilter: 'blur(20px)' }}>
+          {logPanel}
         </div>
       </div>
     );
@@ -386,38 +477,82 @@ export function PocHarness() {
 
       {/* Header */}
       <div style={{
-        padding: '20px 40px',
+        padding: isMobile ? '14px 16px' : '20px 40px',
         borderBottom: `1px solid ${colors.borderSubtle}`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 8,
         background: 'rgba(255,255,255,0.02)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px' }}>SecureVoice</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: isMobile ? 16 : 20, fontWeight: 700, letterSpacing: '-0.5px' }}>SecureVoice</span>
           <SecureBadge />
         </div>
         {identity && (
-          <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: 'monospace' }}>
-            ID: {identity.keyId.slice(0, 14)}…
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>
+            ID: {identity.keyId.slice(0, isMobile ? 8 : 14)}…
           </div>
         )}
       </div>
 
       {/* Body */}
-      <div style={{ maxWidth: 800, margin: '0 auto', padding: '48px 40px', width: '100%', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: 34, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-1px' }}>Your Contacts</h1>
-        <p style={{ color: colors.textSecondary, fontSize: 15, margin: '0 0 40px' }}>
-          Start a secure P2P call. All media is end-to-end encrypted — no data touches our servers.
-        </p>
+      <div style={{ maxWidth: 800, margin: '0 auto', padding: isMobile ? '24px 16px' : isTablet ? '32px 24px' : '48px 40px', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'flex-end', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', marginBottom: 28, gap: 16 }}>
+          <div>
+            <h1 style={{ fontSize: isMobile ? 26 : 34, fontWeight: 700, margin: '0 0 6px', letterSpacing: '-1px' }}>Your Contacts</h1>
+            <p style={{ color: colors.textSecondary, fontSize: 13, margin: 0 }}>
+              End-to-end encrypted · No data touches our servers
+            </p>
+          </div>
+          {/* Search input */}
+          <div style={{ position: 'relative', width: isMobile ? '100%' : 260, flexShrink: 0 }}>
+            <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              id="poc-search-input"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search contacts…"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '10px 12px 10px 36px',
+                background: 'rgba(255,255,255,0.06)',
+                border: `1px solid ${colors.borderMid}`,
+                borderRadius: 12,
+                color: colors.textPrimary,
+                fontSize: 14,
+                fontFamily: font,
+                outline: 'none',
+              }}
+            />
+          </div>
+        </div>
 
         {contacts.length === 0 ? (
           <EmptyState />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {contacts.map(c => (
-              <ContactRow key={c.contactId} contact={c} onAudio={() => startCall(c, false)} onVideo={() => startCall(c, true)} />
-            ))}
-          </div>
-        )}
+        ) : (() => {
+          const filtered = contacts.filter(c =>
+            c.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            c.contactId.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+          return filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: colors.textMuted, fontFamily: font, fontSize: 14 }}>
+              No contacts match &quot;{searchQuery}&quot;
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {filtered.map(c => (
+                <ContactRow key={c.contactId} contact={c} onAudio={() => startCall(c, false)} onVideo={() => startCall(c, true)} />
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* Log panel on dashboard */}
+        <div style={{ marginTop: 40 }}>
+          {logPanel}
+        </div>
       </div>
     </div>
   );
@@ -441,10 +576,10 @@ function IncomingCallModal({ caller, accepting, onAccept, onReject }: {
     background: colors.bgModal,
     border: `1px solid ${colors.borderMid}`,
     borderRadius: 24,
-    padding: '48px 40px',
+    padding: '36px 28px',
     textAlign: 'center',
     maxWidth: 400,
-    width: '90%',
+    width: '92%',
     boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
     fontFamily: font,
   };
@@ -464,10 +599,10 @@ function IncomingCallModal({ caller, accepting, onAccept, onReject }: {
           <p style={{ color: colors.green, fontWeight: 600, fontSize: 15, margin: 0 }}>Connecting…</p>
         ) : (
           <div style={{ display: 'flex', gap: 14 }}>
-            <ActionButton id="poc-accept-video-btn" color={colors.green} glowColor={colors.greenGlow} onClick={onAccept}>
+            <ActionButton id="poc-accept-video-btn" color={colors.green} onClick={onAccept}>
               <VideoIcon /> Accept
             </ActionButton>
-            <ActionButton id="poc-reject-btn" color="rgba(255,255,255,0.1)" glowColor="transparent" onClick={onReject} hoverColor={colors.red}>
+            <ActionButton id="poc-reject-btn" color="rgba(255,255,255,0.1)" onClick={onReject} hoverColor={colors.red}>
               <PhoneOffIcon /> Decline
             </ActionButton>
           </div>
@@ -477,27 +612,25 @@ function IncomingCallModal({ caller, accepting, onAccept, onReject }: {
   );
 }
 
-function ActionButton({ children, onClick, color, glowColor, hoverColor, id }: {
+function ActionButton({ children, onClick, color, hoverColor, id }: {
   children: React.ReactNode;
   onClick: () => void;
   color: string;
-  glowColor: string;
+  glowColor?: string;
   hoverColor?: string;
   id?: string;
 }) {
   const [hovered, setHovered] = useState(false);
   const s: CSSProperties = {
-    flex: 1, padding: '14px 20px',
+    flex: 1, padding: '13px 18px',
     background: hovered && hoverColor ? hoverColor : color,
     border: 'none',
-    borderRadius: 16,
+    borderRadius: 10,
     color: '#fff',
     fontSize: 15, fontWeight: 600,
     cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-    boxShadow: hovered ? `0 8px 24px ${glowColor}` : `0 4px 12px ${glowColor}`,
-    transition: 'all 0.2s ease',
-    transform: hovered ? 'translateY(-2px)' : 'none',
+    transition: 'background 0.15s ease',
     fontFamily: font,
   };
   return (
@@ -508,26 +641,30 @@ function ActionButton({ children, onClick, color, glowColor, hoverColor, id }: {
 }
 
 function ContactRow({ contact, onAudio, onVideo }: { contact: Contact; onAudio: () => void; onVideo: () => void }) {
+  const w = useWindowWidth();
+  const isMobile = w < 600;
   const [hovered, setHovered] = useState(false);
   const card: CSSProperties = {
     background: hovered ? colors.bgSurfaceHover : colors.bgSurface,
     border: `1px solid ${hovered ? colors.borderMid : colors.borderSubtle}`,
-    borderRadius: 18,
-    padding: '20px 24px',
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    transition: 'all 0.25s ease',
-    transform: hovered ? 'translateY(-3px)' : 'none',
-    boxShadow: hovered ? '0 10px 32px rgba(0,0,0,0.30)' : 'none',
+    borderRadius: 12,
+    padding: isMobile ? '14px' : '16px 20px',
+    display: 'flex',
+    flexDirection: isMobile ? 'column' : 'row',
+    alignItems: isMobile ? 'flex-start' : 'center',
+    justifyContent: 'space-between',
+    gap: isMobile ? 12 : 0,
+    transition: 'background 0.15s ease, border-color 0.15s ease',
     fontFamily: font,
   };
   const isVerified = contact.verification === 'verified';
   return (
     <div style={card} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-        <Avatar name={contact.displayName} size={52} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <Avatar name={contact.displayName} size={isMobile ? 42 : 52} />
         <div>
-          <div style={{ fontWeight: 600, fontSize: 17, marginBottom: 4 }}>{contact.displayName}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontWeight: 600, fontSize: isMobile ? 15 : 17, marginBottom: 4 }}>{contact.displayName}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{
               fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
               padding: '3px 10px', borderRadius: 20,
@@ -537,45 +674,47 @@ function ContactRow({ contact, onAudio, onVideo }: { contact: Contact; onAudio: 
             }}>
               {isVerified ? '✓ Verified' : 'Unverified'}
             </span>
-            <span style={{ fontSize: 12, color: colors.textMuted, fontFamily: 'monospace' }}>
-              {contact.contactId.slice(0, 10)}…
-            </span>
+            {!isMobile && (
+              <span style={{ fontSize: 12, color: colors.textMuted, fontFamily: 'monospace' }}>
+                {contact.contactId.slice(0, 10)}…
+              </span>
+            )}
           </div>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 10 }}>
-        <CallButton id={`poc-dial-audio-${contact.contactId.slice(0, 8)}`} onClick={onAudio} variant="secondary">
-          <PhoneIcon /> Audio
+      <div style={{ display: 'flex', gap: 8, alignSelf: isMobile ? 'stretch' : 'auto' }}>
+        <CallButton id={`poc-dial-audio-${contact.contactId.slice(0, 8)}`} onClick={onAudio} variant="secondary" fullWidth={isMobile}>
+          <PhoneIcon /> {!isMobile && 'Audio'}
         </CallButton>
-        <CallButton id={`poc-dial-video-${contact.contactId.slice(0, 8)}`} onClick={onVideo} variant="primary">
-          <VideoIcon /> Video
+        <CallButton id={`poc-dial-video-${contact.contactId.slice(0, 8)}`} onClick={onVideo} variant="primary" fullWidth={isMobile}>
+          <VideoIcon /> {!isMobile && 'Video'}
         </CallButton>
       </div>
     </div>
   );
 }
 
-function CallButton({ children, onClick, variant, id }: {
+function CallButton({ children, onClick, variant, id, fullWidth }: {
   children: React.ReactNode;
   onClick: () => void;
   variant: 'primary' | 'secondary';
   id?: string;
+  fullWidth?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const s: CSSProperties = {
-    padding: '10px 20px',
+    padding: '9px 16px',
     border: variant === 'primary' ? 'none' : `1px solid ${colors.borderMid}`,
-    borderRadius: 12,
+    borderRadius: 8,
     background: variant === 'primary'
       ? (hovered ? colors.blueHover : colors.blue)
       : (hovered ? colors.bgSurfaceHover : 'transparent'),
     color: '#fff',
     fontSize: 14, fontWeight: 600,
     cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 7,
-    boxShadow: variant === 'primary' && hovered ? `0 6px 20px rgba(45,140,255,0.40)` : 'none',
-    transition: 'all 0.18s ease',
-    transform: hovered ? 'translateY(-1px)' : 'none',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+    flex: fullWidth ? 1 : undefined,
+    transition: 'background 0.15s ease',
     fontFamily: font,
   };
   return (
