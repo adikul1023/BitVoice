@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+import { fileURLToPath, URL } from 'node:url';
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -18,9 +20,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@securevoice/webrtc/signaling': '/home/m4lwhere/tmp/BitVoice/packages/webrtc/src/signaling.ts',
-      '@securevoice/webrtc/turn': '/home/m4lwhere/tmp/BitVoice/packages/webrtc/src/turn.ts',
-      '@securevoice/webrtc': '/home/m4lwhere/tmp/BitVoice/packages/webrtc/src/index.ts'
-    }
-  }
+      '@securevoice/webrtc/signaling': fileURLToPath(new URL('../../packages/webrtc/src/signaling.ts', import.meta.url)),
+      '@securevoice/webrtc/turn': fileURLToPath(new URL('../../packages/webrtc/src/turn.ts', import.meta.url)),
+      '@securevoice/webrtc': fileURLToPath(new URL('../../packages/webrtc/src/index.ts', import.meta.url)),
+    },
+  },
 });
