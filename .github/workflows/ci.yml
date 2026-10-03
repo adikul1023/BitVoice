@@ -60,6 +60,7 @@ jobs:
             echo "── Restarting service ──"
             pm2 reload rendezvous || pm2 start node \
               --name rendezvous \
+              --cwd ~/BitVoice \
               -- --env-file=apps/rendezvous-service/.env \
                  --experimental-strip-types \
                  apps/rendezvous-service/src/server.ts
