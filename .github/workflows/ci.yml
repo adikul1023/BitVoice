@@ -57,8 +57,12 @@ jobs:
             echo "── Installing dependencies ──"
             npm ci
 
+            echo "── Compiling packages ──"
+            npm run typecheck
+
             echo "── Restarting service ──"
-            pm2 reload rendezvous || pm2 start node \
+            pm2 delete rendezvous 2>/dev/null || true
+            pm2 start node \
               --name rendezvous \
               --cwd ~/BitVoice \
               -- --env-file=apps/rendezvous-service/.env \
