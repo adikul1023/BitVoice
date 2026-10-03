@@ -150,8 +150,8 @@ function ControlButton({ icon, label, onClick, active = false, danger = false, i
   const iconBg: CSSProperties = danger
     ? { background: hovered ? '#c93428' : colors.red, borderRadius: 18, padding: '14px 20px' }
     : active
-    ? { background: 'rgba(234,67,53,0.14)', border: '1px solid rgba(234,67,53,0.25)', color: colors.red, borderRadius: 18, padding: 12 }
-    : { background: hovered ? colors.bgControlBtnHover : colors.bgControlBtn, borderRadius: 18, padding: 12 };
+      ? { background: 'rgba(234,67,53,0.14)', border: '1px solid rgba(234,67,53,0.25)', color: colors.red, borderRadius: 18, padding: 12 }
+      : { background: hovered ? colors.bgControlBtnHover : colors.bgControlBtn, borderRadius: 18, padding: 12 };
 
   const btn: CSSProperties = {
     display: 'flex',
@@ -287,7 +287,12 @@ export function PocHarness() {
       setIsMuted(false);
       setIsCameraOff(!video);
       await session?.dial(contact, 'direct-preferred', { audio: true, video });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      // Error is already traced inside session.ts dial() — no need to duplicate.
+      // Just reset the call state so the UI doesn't stay stuck at "Connecting…"
+      setCallState('none');
+    }
   };
 
   const handleEndCall = () => session?.endCall();
@@ -350,9 +355,9 @@ export function PocHarness() {
               fontFamily: 'monospace',
               color: t.toLowerCase().includes('error') ? '#EA4335'
                 : t.toLowerCase().includes('connected') ? '#34A853'
-                : t.toLowerCase().includes('answer') || t.toLowerCase().includes('offer') ? '#2D8CFF'
-                : t.toLowerCase().includes('ice') ? '#FFC107'
-                : colors.textSecondary,
+                  : t.toLowerCase().includes('answer') || t.toLowerCase().includes('offer') ? '#2D8CFF'
+                    : t.toLowerCase().includes('ice') ? '#FFC107'
+                      : colors.textSecondary,
               lineHeight: 1.6,
             }}>{t}</span>
           ))
@@ -363,8 +368,9 @@ export function PocHarness() {
   );
 
   // ── Active Call View ───────────────────────────────────────────────
-  if (callState !== 'none') {
-    const isConnecting = callState.includes('connecting') || callState.includes('preparing') || callState.includes('rendezvous');
+  const isIncomingWaiting = callState === 'incoming-offer' || callState === 'incoming-review';
+  if (callState !== 'none' && !isIncomingWaiting) {
+    const isConnecting = callState.includes('connecting') || callState.includes('preparing') || callState.includes('rendezvous') || callState.includes('accepted');
 
     return (
       <div style={rootStyle}>

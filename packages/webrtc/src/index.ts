@@ -403,6 +403,10 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			}
 			move('offer-accepted');
 			await ensureConnection().setRemoteDescription(payload.signal as RTCSessionDescriptionInit);
+			for (const init of pendingCandidates) {
+				await connection?.addIceCandidate(init).catch(e => trace(`buffered addIceCandidate failed: ${e.message}`));
+			}
+			pendingCandidates = [];
 		},
 		async receiveIceCandidate(payload) {
 			if (state === 'ended' || state === 'ending') return;
@@ -416,7 +420,7 @@ export function createDirectCall(config: DirectCallConfig): DirectCall {
 			if (init.sdpMLineIndex !== undefined && init.sdpMLineIndex !== null && typeof init.sdpMLineIndex !== 'number') throw new Error('Invalid sdpMLineIndex');
 			if (init.usernameFragment !== undefined && init.usernameFragment !== null && typeof init.usernameFragment !== 'string') throw new Error('Invalid usernameFragment');
 
-			if (state === 'incoming-review') {
+			if (state === 'incoming-review' || state === 'outgoing-rendezvous') {
 				if (pendingCandidates.length < MAX_PENDING_ICE_CANDIDATES) {
 					pendingCandidates.push(init);
 				}
