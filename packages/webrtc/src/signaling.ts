@@ -145,6 +145,7 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
     resetCallId(callId: string) {
       currentCallId = callId;
       activeSessionKeys = undefined;
+      preAnswerSessionKeys = undefined;
       remoteEphemeralPublicKeyBase64 = undefined;
     },
     get activeCallId() {
@@ -170,11 +171,10 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
 
     async receive(onPayload: (payload: WebrtcSignalPayload, sourceCallId: string) => Promise<void>, waitSeconds = 0): Promise<void> {
       const messages = await config.rendezvous.get(config.mailboxId, waitSeconds);
-      const acks: Promise<void>[] = [];
       for (const message of messages) {
         try {
           const envelope = await verifyEnvelope(message.ciphertext, config.resolveSenderKey, config.replayGuard, now());
-          
+
           if (envelope.header.type === 'call-offer' && !currentCallId) {
             currentCallId = envelope.header.callId!;
           }
@@ -183,32 +183,29 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
           let plaintext: ArrayBuffer;
           try {
             plaintext = await decryptEnvelope(keys.receivingKey, envelope.ciphertext, envelope.header);
-          } catch (e) {
+          } catch (error) {
             if (keys === activeSessionKeys && preAnswerSessionKeys) {
               plaintext = await decryptEnvelope(preAnswerSessionKeys.receivingKey, envelope.ciphertext, envelope.header);
             } else {
-              throw e;
+              throw error;
             }
           }
           const payload = JSON.parse(new TextDecoder().decode(plaintext)) as SignalingPayload;
           const signalIsCandidate = payload.signal && 'candidate' in payload.signal;
           const signalHasDescription = payload.signal && 'type' in payload.signal && (payload.signal.type === 'offer' || payload.signal.type === 'answer' || payload.signal.type === 'rollback');
           if (payload.callId !== envelope.header.callId || !payload.signal || (!signalIsCandidate && !signalHasDescription)) throw new Error('invalid signaling payload');
-          
+
           await onPayload({ signal: payload.signal, privacyMode: payload.privacyMode }, payload.callId);
-          acks.push(config.rendezvous.ack(config.mailboxId, message.messageId));
+          await config.rendezvous.ack(config.mailboxId, message.messageId);
         } catch (error: unknown) {
           if ((error as Error)?.name === 'ReplayError') {
-            acks.push(config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {}));
+            await config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {});
             continue;
           }
           console.warn(`[signaling] Dropping invalid or unreadable message ${message.messageId}:`, error);
-          acks.push(config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {}));
-          continue;
+          throw error;
         }
       }
-      await Promise.all(acks);
     },
   };
 }
-
