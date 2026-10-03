@@ -41,13 +41,13 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           port: 22
-          debug: true
           script: |
-            set -ex
+            set -e
 
             # Load NVM environment so node, npm, and pm2 are available
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm use 22.14.0 --silent 2>/dev/null || true
 
             cd ~/BitVoice
 
@@ -55,7 +55,7 @@ jobs:
             git pull origin main
 
             echo "── Installing dependencies ──"
-            npm ci
+            npm ci --no-audit --no-fund
 
             echo "── Compiling packages ──"
             npm run typecheck
