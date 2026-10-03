@@ -206,6 +206,7 @@ export function PocHarness() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const [localStream, setLocalStream] = useState<MediaStream>();
+  const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
@@ -252,17 +253,13 @@ export function PocHarness() {
       },
       onLocalStream: (stream) => {
         setLocalStream(stream);
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       },
       onRemoteStream: (stream) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-          remoteVideoRef.current.play().catch(e => console.error('play failed:', e));
-          const tracks = stream.getVideoTracks();
-          setRemoteHasVideo(tracks.length > 0 && tracks[0].enabled);
-          stream.addEventListener('addtrack', () => setRemoteHasVideo(stream.getVideoTracks().length > 0));
-          stream.addEventListener('removetrack', () => setRemoteHasVideo(stream.getVideoTracks().length > 0));
-        }
+        setRemoteStream(stream);
+        // Force an immediate evaluation, bypassing React state equality check 
+        // in case the stream object is exactly the same reference but tracks changed
+        const tracks = stream.getVideoTracks();
+        setRemoteHasVideo(tracks.length > 0 && tracks[0].enabled);
       },
       onTrace: (event) => {
         console.log(event);
@@ -281,6 +278,32 @@ export function PocHarness() {
   useEffect(() => {
     traceEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [traces]);
+
+  // Bind remote stream to video element when it mounts
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch(e => console.error('play failed:', e));
+      const checkVideo = () => {
+        const tracks = remoteStream.getVideoTracks();
+        setRemoteHasVideo(tracks.length > 0 && tracks[0].enabled);
+      };
+      checkVideo();
+      remoteStream.addEventListener('addtrack', checkVideo);
+      remoteStream.addEventListener('removetrack', checkVideo);
+      return () => {
+        remoteStream.removeEventListener('addtrack', checkVideo);
+        remoteStream.removeEventListener('removetrack', checkVideo);
+      };
+    }
+  }, [remoteStream, callState]);
+
+  // Bind local stream to video element when it mounts
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream, callState, isCameraOff]);
 
   const startCall = async (contact: Contact, video: boolean) => {
     try {

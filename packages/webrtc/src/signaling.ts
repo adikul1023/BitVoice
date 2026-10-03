@@ -180,7 +180,16 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
           }
 
           const keys = await getSessionKeys(envelope.header, false);
-          const plaintext = await decryptEnvelope(keys.receivingKey, envelope.ciphertext, envelope.header);
+          let plaintext: ArrayBuffer;
+          try {
+            plaintext = await decryptEnvelope(keys.receivingKey, envelope.ciphertext, envelope.header);
+          } catch (e) {
+            if (keys === activeSessionKeys && preAnswerSessionKeys) {
+              plaintext = await decryptEnvelope(preAnswerSessionKeys.receivingKey, envelope.ciphertext, envelope.header);
+            } else {
+              throw e;
+            }
+          }
           const payload = JSON.parse(new TextDecoder().decode(plaintext)) as SignalingPayload;
           const signalIsCandidate = payload.signal && 'candidate' in payload.signal;
           const signalHasDescription = payload.signal && 'type' in payload.signal && (payload.signal.type === 'offer' || payload.signal.type === 'answer' || payload.signal.type === 'rollback');
@@ -193,7 +202,9 @@ export function createAuthenticatedSignaling(config: AuthenticatedSignalingConfi
             acks.push(config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {}));
             continue;
           }
-          throw error;
+          console.warn(`[signaling] Dropping invalid or unreadable message ${message.messageId}:`, error);
+          acks.push(config.rendezvous.ack(config.mailboxId, message.messageId).catch(() => {}));
+          continue;
         }
       }
       await Promise.all(acks);
