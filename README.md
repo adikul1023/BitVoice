@@ -1,6 +1,6 @@
 # SecureVoice (BitVoice)
 
-SecureVoice is a privacy-conscious peer-to-peer voice calling web application. It features end-to-end encrypted signaling, out-of-band contact verification via SAS (Short Authentication String) fingerprints, and automatic WebRTC direct P2P connection with dynamic STUN/TURN relay fallback.
+SecureVoice is a privacy-conscious peer-to-peer voice calling web application. It features end-to-end encrypted signaling, out-of-band contact verification via SAS (Short Authentication String) fingerprints, and automatic WebRTC direct P2P connection with dynamic  STUN/TURN relay fallback.
 
 ---
 
