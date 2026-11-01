@@ -20,7 +20,7 @@
     "build": "npm run build --workspace @securevoice/web && npm run build --workspace @securevoice/rendezvous-service"
   },
   "devDependencies": {
-    "@eslint/js": "^9.17.0",
+    "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.10.0",
